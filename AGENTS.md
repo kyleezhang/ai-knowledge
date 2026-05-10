@@ -1,162 +1,161 @@
 # AGENTS.md
 
-## 1. 项目概述
-本项目是一个面向 AI/LLM/Agent 领域的知识库助手，负责自动从 GitHub Trending 和 Hacker News 采集技术动态，结合 AI 对内容进行分析、去噪、摘要和结构化整理，并以 JSON 形式沉淀为可检索知识条目，最终支持向飞书、微信等渠道分发，帮助团队持续跟踪高价值技术信息。
+## Purpose
 
-## 2. 技术栈
-- Python 3.12
-- ClaudeCode + deepseek
-- LangGraph
-- OpenClaw
+This repo implements **AI 学习助手**: a CLI-first knowledge workflow for AI learning materials.
 
-## 3. 编码与交付规范
+Core flow:
 
-### 3.1 规范原则
-- 本节是仓库内唯一的编码与交付规范来源。
-- 规则按约束等级分为：
-  - **MUST**：必须遵守，违反则不应合并到 `main`
-  - **SHOULD**：默认应遵守，允许受控例外
-  - **REVIEW**：主要依赖代码评审判断
-- 合并到 `main` 的变更必须通过面向 `main` 的 PR 流程，不应直接提交到 `main`。
-
-### 3.2 适用范围
-- 本规范适用于仓库中的源码、脚本和可执行配置。
-- 数据文件、生成产物、第三方代码不直接适用本节编码规则：
-  - `knowledge/raw/`
-  - `knowledge/articles/`
-  - 其他自动生成文件或外部引入代码
-- 不同语言规则按文件类型生效：
-  - Python：`*.py`
-  - TypeScript：`*.ts`、`*.tsx`
-- `.claude/agents/`、`.claude/skills/` 中若包含脚本代码，按对应语言规则执行；纯提示词、说明文档仅适用最小必要规则，不强制套用代码风格条款。
-
-### 3.3 MUST：强制规则
-#### Python
-- Python 代码风格遵循 PEP 8 的总体原则；涉及格式化的具体结果，以 `black` 自动格式化输出为准。
-- 变量、函数、模块名统一使用 `snake_case`。
-- 禁止使用裸 `print()`；统一使用项目约定的日志方案。
-
-#### 文档
-- 所有对外暴露的 API 必须具备符合语言习惯的文档注释。
-- Python 的公开模块、公开类、公开函数必须使用 Google 风格 docstring。
-- “对外暴露的 API” 包括：
-  - Python 中供外部调用的模块、类、函数
-  - TypeScript 中导出的函数、类、共享组件、关键类型
-- Python 中，`__all__` 导出的对象优先视为公开 API；未以下划线开头且明确供外部调用的对象，也视为公开 API。
-- 以下内容可豁免文档要求：
-  - 明确的内部辅助函数或方法
-  - 测试代码
-  - 临时实验代码（不得进入 `main`）
-
-#### 质量与流程
-- 合并到 `main` 的代码不得包含无负责人、无追踪链接的占位性技术债注释，例如：`TODO`、`FIXME`、`XXX`、`HACK`。
-- 合并到 `main` 的 PR 必须通过必选 CI 检查；当前至少包括：
-  - lint / 静态检查
-  - 单元测试
-
-#### 安全与边界
-- 禁止硬编码密钥、Token、Cookie、凭证或其他敏感配置。
-- I/O、网络请求、外部系统交互必须放在清晰的边界层中，避免业务逻辑与基础设施耦合。
-
-### 3.4 SHOULD：默认应遵守
-- 应避免在业务逻辑中散落未命名的关键字面量。
-- 对状态值、来源类型、渠道标识、事件名等具有领域语义且会被复用的字符串，应集中定义为常量、枚举或统一映射。
-- 以下场景可作为例外，不按“魔法字符串”处理：
-  - 外部协议字段名
-  - JSON 键
-  - 环境变量名
-  - 测试数据
-  - SQL、正则表达式、prompt 模板中不可避免的字面量
-- 测试覆盖率以 CI 中统一工具生成的报告为准；对新增或修改代码，目标覆盖率不低于 80%，且不得低于当前主分支覆盖率基线。
-
-### 3.5 条件生效规则
-- 若仓库中引入 TypeScript 代码或新增 TypeScript 子项目，必须启用 `tsconfig` 的 strict mode。
-- 在未引入 TypeScript 代码前，该条款视为预设约束，不作为当前仓库的验收阻断项。
-
-### 3.6 REVIEW：人工评审关注点
-以下内容主要依赖评审判断，必要时可要求整改：
-- 文档是否足以说明对外 API 的行为、输入输出和限制
-- 业务逻辑是否与 I/O、网络请求、外部系统调用发生不合理耦合
-- 领域关键字面量是否应提升为常量、枚举或统一映射
-- 测试是否覆盖核心分支，而非仅为满足覆盖率数字
-
-### 3.7 例外处理
-- 允许例外的规则，必须在 PR 中显式说明：
-  - 原因
-  - 影响范围
-  - 责任人
-  - 对应任务或 issue 链接
-- 涉及主干质量、架构边界、覆盖率门槛的例外，需经 reviewer 明确认可。
-- 涉及安全、凭证、数据真实性、来源真实性的红线项不允许例外。
-
-### 3.8 责任划分
-- 变更作者负责其提交内容符合本规范。
-- Reviewer 负责判断人工评审项以及例外是否合理。
-- CI 负责执行自动化校验项并作为 `main` 合并门禁。
-- Agent 生成的代码与人工提交的代码适用同等规范，不因生成方式不同而放宽要求。
-
-## 4. 项目结构
 ```text
-.claude/
-  agents/          # Agent 定义与协作配置
-  skills/          # 可复用技能与命令封装
-knowledge/
-  raw/             # 原始采集数据
-  articles/        # AI 处理后的结构化知识条目
+资料进入 -> 处理 -> 初步理解 -> 多轮讨论 -> 用户确认
+-> Note JSON -> Markdown -> QA -> 索引 -> 问答
 ```
 
-### 目录说明
-- `.claude/agents/`：存放采集、分析、整理等 Agent 的配置、提示词与协作约束。
-- `.claude/skills/`：存放通用工作流、脚本封装及命令技能。
-- `knowledge/raw/`：保存来自 GitHub Trending、Hacker News 等来源的原始抓取结果，便于回溯。
-- `knowledge/articles/`：保存 AI 分析后的标准化 JSON 知识条目。
+This is not a simple summarizer. Always preserve the boundary between raw material, discussion-stage understanding, and user-approved knowledge.
 
-## 5. 知识流水线与条目契约
-知识流水线的数据契约以 `specs/knowledge-pipeline.md` 为准。该文件是以下 3 个阶段的唯一详细字段规范来源：
-- `collector`：原始候选内容采集
-- `analyzer`：候选内容分析与评分
-- `organizer`：标准知识条目落库
+## Source of Truth
 
-### 最终知识条目核心字段
-最终写入 `knowledge/articles/` 的条目必须遵循统一 schema，核心字段包括：
-- `id`
-- `title`
-- `source`
-- `source_url`
-- `author`
-- `published_at`
-- `collected_at`
-- `summary`
-- `highlights`
-- `score`
-- `score_reason`
-- `tags`
-- `status`
-- `language`
-- `content`
-- `distribution_channels`
-- `metadata`
-- `trace`
+Read the relevant specs before changing behavior:
 
-### 约束说明
-- `highlights` 和 `score_reason` 必须保持为结构化字段，不得在落库时压回 `content`。
-- `content` 仅用于正文、摘录或扩展分析；若无真实正文，可为 `null`。
-- `metadata` 仅用于辅助字段，如热度、来源上下文、分析信号和采集摘要。
-- 阶段间字段映射、去重规则、命名规范、schema 版本等细节，统一维护在 `specs/knowledge-pipeline.md`。
+- `specs/prd.md` — product requirements
+- `specs/workflow.md` — workflow and state semantics
+- `specs/schema.md` — object schemas and filesystem layout
+- `specs/implementation.md` — technical standards and phase plan
 
-## 6. Agent 角色概览
-| 角色 | 核心职责 | 输入 | 输出 |
-|---|---|---|---|
-| 采集 Agent | 抓取 GitHub Trending、Hacker News 等来源的原始内容，做基础清洗和去重 | 外部站点页面、API 响应 | `knowledge/raw/` 下的原始数据 |
-| 分析 Agent | 对原始内容做主题识别、摘要生成、标签提取、价值评分与结构化建模 | 原始抓取数据 | 标准化 JSON 知识条目 |
-| 整理 Agent | 审核条目质量、修正分类、补充上下文，并推送到飞书/微信等渠道 | 分析后的 JSON 条目 | 最终发布内容与归档结果 |
+If implementation needs conflict with specs, update the spec first.
 
-## 7. 红线（绝对禁止的操作）
-- 禁止提交、输出或分发任何密钥、Token、Cookie、凭证或敏感配置。
-- 禁止伪造采集来源、发布时间、作者信息或 AI 分析结果。
-- 禁止绕过人工审核直接发布低置信度或来源不明的内容。
-- 禁止在代码中使用裸 `print()`、硬编码密钥或未脱敏的日志输出。
-- 禁止直接修改原始采集数据以掩盖抓取错误；如需修正，必须保留可追溯记录。
-- 禁止删除 `knowledge/raw/` 中用于审计和回溯的原始数据，除非有明确的数据生命周期策略。
-- 禁止未经授权调用外部分发渠道账号，尤其是飞书群、微信公众号或个人微信。
-- 禁止实现与项目目标无关的高风险能力，如批量爬取非授权站点、攻击性扫描、凭证探测等。
+## Technical Baseline
+
+- TypeScript + Node.js LTS + pnpm + ESM
+- CLI first; no Web UI in P0
+- Local filesystem storage under `knowledge/`
+- Zod for runtime validation
+- Vitest for tests
+- ESLint + Prettier for quality
+- `snake_case` for JSON fields and core TypeScript object fields
+- P0 supports Markdown only
+- P0 retrieval is keyword / metadata only
+- PDF is P1, auto-collection is P2, vector retrieval is P3
+
+## Core Object Rules
+
+- `Candidate`: auto-collected candidate only; not main knowledge.
+- `Source`: ingestion, processing, draft understanding, discussion, approval.
+- `Note`: approved knowledge object.
+- `note.json`: source of truth for formal knowledge.
+- `note.md`: rendered reading view only.
+- `Index Entry`: retrieval entry only, not knowledge truth.
+
+Do not generate a formal `Note` directly from raw material or `draft_understanding`.
+
+## Filesystem Rules
+
+MVP layout:
+
+```text
+knowledge/
+  candidates/
+  sources/
+  notes/
+  index/
+```
+
+Follow `specs/schema.md` exactly.
+
+Do not hand-build `knowledge/` paths outside storage path helpers.
+
+## Layering Rules
+
+- CLI: parse args, handle user interaction, call workflows, print results.
+- Domain: types, Zod schemas, state enums, IDs, validators, state machine.
+- Storage: path resolution, JSON read/write, directories, raw/processed artifacts, `discussion.jsonl`.
+- Workflow: compose storage + domain + processors + agents + QA + state transitions.
+- Agent: wrap LLM calls only.
+
+Agents must not write files, mutate statuses, create indexes, or trust their own output without validation.
+
+State transitions must go through domain state-machine helpers, never direct status assignment.
+
+## Agent Workflow
+
+When implementing work:
+
+1. Read the relevant spec.
+2. Identify the affected layer.
+3. Implement from inside out:
+
+```text
+domain -> storage -> processing/agents -> workflows -> cli -> tests
+```
+
+4. Validate before and after state transitions.
+5. Add tests at the changed boundary.
+6. If the request crosses P0 scope, update specs first.
+
+## Required Gates
+
+Never bypass these gates:
+
+1. No processed artifacts -> no `draft_understanding`.
+2. No discussion convergence + explicit user approval -> no formal `Note`.
+3. No QA / lint pass -> no `approved` Note.
+4. No `approved` Note -> no main index entry.
+5. Auto-collected content must become `Candidate` before `Source`.
+6. LLM output must pass schema validation before workflow continues.
+7. Answers should prefer approved Notes over raw Sources.
+
+## Do Not Do
+
+Unless specs are updated first, do not:
+
+- Add PDF, auto-collection, or vector retrieval to P0.
+- Introduce a database to replace local filesystem storage.
+- Build Web UI before the CLI workflow is complete.
+- Let `note.md` become editable source of truth.
+- Generate formal Notes without explicit user approval.
+- Index draft, archived, or superseded Notes as main knowledge.
+- Silently repair invalid LLM JSON and continue.
+- Mix camelCase and snake_case in core object fields.
+- Add dependencies for future phases before needed.
+- Store API keys, tokens, cookies, or credentials in repo files.
+- Delete or rewrite raw imported materials to hide processing errors.
+
+## P0 Commands
+
+```bash
+ai-knowledge source ingest markdown <file>
+ai-knowledge source process <source_id>
+ai-knowledge source understand <source_id>
+ai-knowledge source discuss <source_id>
+ai-knowledge source approve <source_id>
+ai-knowledge source list
+ai-knowledge source show <source_id>
+
+ai-knowledge note compose <source_id>
+ai-knowledge note render <note_id>
+ai-knowledge note lint <note_id>
+ai-knowledge note approve <note_id>
+ai-knowledge note index <note_id>
+ai-knowledge note list
+ai-knowledge note show <note_id>
+
+ai-knowledge answer "<question>"
+```
+
+## Testing
+
+Use Vitest. Prioritize tests for:
+
+- ID / slug generation
+- state transitions
+- validators
+- path generation
+- markdown rendering
+- note lint
+- P0 workflow with mocked agents
+
+Tests must not depend on real LLM calls.
+
+## Implementation Discipline
+
+Keep changes scoped. Do not introduce speculative abstractions. Prefer updating specs before changing object contracts.
