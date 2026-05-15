@@ -1,0 +1,134 @@
+schema: spec-driven
+
+context: |
+  Project: AI 学习助手 — a CLI-first knowledge workflow for AI learning materials.
+
+  Core product flow:
+    资料进入 -> 处理 -> 初步理解 -> 多轮讨论 -> 用户确认
+    -> Note JSON -> Markdown -> QA -> 索引 -> 问答
+
+  This project is not a simple summarizer. Always preserve the boundary between:
+    - raw material / processing artifacts
+    - draft_understanding and discussion-stage understanding
+    - user-approved Note knowledge
+
+  Source of truth documents:
+    - specs/prd.md: product requirements and product principles
+    - specs/workflow.md: workflow stages, states, and gates
+    - specs/schema.md: object schemas and filesystem layout
+    - specs/implementation.md: technical baseline, layering, and P0 plan
+
+  Technical baseline:
+    - TypeScript + Node.js LTS + pnpm + ESM
+    - CLI first; no Web UI in P0
+    - Local filesystem storage under knowledge/
+    - Zod for runtime validation
+    - Vitest for tests
+    - ESLint + Prettier for quality
+    - JSON fields and core TypeScript object fields use snake_case
+
+  MVP / P0 scope:
+    - Supports Markdown active import only
+    - PDF is P1
+    - Auto-collection / Candidate workflows are P2
+    - Vector retrieval is P3
+    - P0 retrieval is keyword / metadata based only
+
+  Core object boundaries:
+    - Candidate: auto-collected candidate only; not main knowledge
+    - Source: ingestion, processing, draft understanding, discussion, approval
+    - Note: approved knowledge object
+    - note.json: source of truth for formal knowledge
+    - note.md: rendered reading view only
+    - Index Entry: retrieval entry only, not knowledge truth
+
+  Required implementation layering:
+    - CLI: parse args, handle interaction, call workflows, print results
+    - Domain: types, Zod schemas, states, IDs, validators, state machine
+    - Storage: paths, JSON read/write, directories, raw/processed artifacts, discussion.jsonl
+    - Workflow: compose storage + domain + processors + agents + QA + state transitions
+    - Agent: wrap LLM calls only
+
+  Non-negotiable gates:
+    - No processed artifacts -> no draft_understanding
+    - No discussion convergence + explicit user approval -> no formal Note
+    - No QA / lint pass -> no approved Note
+    - No approved Note -> no main index entry
+    - Auto-collected content must become Candidate before Source
+    - LLM output must pass schema validation before workflow continues
+    - Answers should prefer approved Notes over raw Sources
+
+  P0 commands:
+    - ai-knowledge source ingest markdown <file>
+    - ai-knowledge source process <source_id>
+    - ai-knowledge source understand <source_id>
+    - ai-knowledge source discuss <source_id>
+    - ai-knowledge source approve <source_id>
+    - ai-knowledge source list
+    - ai-knowledge source show <source_id>
+    - ai-knowledge note compose <source_id>
+    - ai-knowledge note render <note_id>
+    - ai-knowledge note lint <note_id>
+    - ai-knowledge note approve <note_id>
+    - ai-knowledge note index <note_id>
+    - ai-knowledge note list
+    - ai-knowledge note show <note_id>
+    - ai-knowledge answer "<question>"
+
+  Language preference:
+    - Write human-facing OpenSpec artifact content in Simplified Chinese.
+    - Keep OpenSpec parser-required structural keywords in English when needed.
+    - Keep code identifiers, commands, paths, package names, schema keywords, and capability IDs unchanged.
+    - Use clear technical Chinese writing, not literal translation.
+
+rules:
+  proposal:
+    - Write proposal content in Simplified Chinese.
+    - Keep section headings from the OpenSpec template in English when needed.
+    - Keep capability identifiers in kebab-case English.
+    - Read the relevant specs before proposing behavior changes.
+    - Keep each change small and independently implementable; use issues.md for backlog or roadmap items.
+    - Clearly state whether the change is P0, P1, P2, or P3 scope.
+    - If the change crosses the current P0 boundary, update specs first instead of silently expanding implementation scope.
+    - Include explicit Non-goals for PDF, auto-collection, vector retrieval, Web UI, or database work when they are not in scope.
+    - "Call out affected layers: domain, storage, processing, agents, workflows, CLI, tests."
+    - Preserve the raw material -> discussion -> approved knowledge boundary.
+
+  design:
+    - Write design content in Simplified Chinese.
+    - Keep code identifiers, commands, paths, package names, and schema keywords unchanged.
+    - Keep section headings from the OpenSpec template in English when needed.
+    - Document how the change preserves object boundaries, workflow gates, and source-of-truth rules.
+    - Document the implementation approach by layer when the change crosses domain, storage, workflow, agent, CLI, or test boundaries.
+    - Include migration or compatibility notes for schema, status, filesystem layout, or command behavior changes.
+    - Include a verification strategy for OpenSpec validation, type checking, tests, lint, formatting, and build when applicable.
+
+  tasks:
+    - Write task descriptions in Simplified Chinese.
+    - Keep checkbox format exactly as `- [ ] X.Y ...`.
+    - Keep commands, paths, package names, code identifiers, and capability IDs unchanged.
+    - "Order implementation from inside out: domain -> storage -> processing/agents -> workflows -> CLI -> tests."
+    - Include tests at the changed boundary, especially for IDs, state transitions, validators, paths, rendering, lint, and workflow gates.
+    - Include verification tasks for OpenSpec validation, typecheck, tests, lint, format check, and build when applicable.
+    - Do not add speculative abstractions or future-phase dependencies.
+    - Do not hand-build knowledge/ paths outside storage path helpers.
+    - State transitions must go through domain state-machine helpers, never direct status assignment.
+    - Agent code must not write files, mutate statuses, create indexes, or trust unvalidated LLM output.
+    - Keep changes scoped to the approved OpenSpec change.
+    - Use TypeScript, ESM, Zod, Vitest, ESLint, and Prettier according to specs/implementation.md.
+    - Core object fields should remain snake_case in both JSON and TypeScript.
+    - Validate JSON reads/writes and LLM outputs with Zod.
+    - Tests must not depend on real LLM calls; use mocked or fake agents.
+    - Do not store API keys, tokens, cookies, or credentials in repo files.
+
+  specs:
+    - Write requirement descriptions and scenario explanations in Simplified Chinese.
+    - Keep OpenSpec structural headings in English, including Requirements, ADDED Requirements, MODIFIED Requirements, REMOVED Requirements, RENAMED Requirements, Requirement, Scenario, WHEN, THEN, AND.
+    - Keep capability names, requirement names, commands, paths, code identifiers, object names, status enum values, and field names unchanged.
+    - Organize capability specs by behavior, not by source file or implementation module.
+    - Use specs/schema.md as the source of truth for object fields, statuses, and filesystem layout.
+    - Use specs/workflow.md as the source of truth for state semantics and workflow gates.
+    - Keep note.json as the formal knowledge source of truth; note.md is only a rendered view.
+    - Do not allow formal Notes to be generated directly from raw material or draft_understanding.
+    - Do not index draft, archived, or superseded Notes as main knowledge.
+    - Each requirement must be testable through at least one scenario.

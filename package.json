@@ -1,0 +1,37 @@
+{
+  "name": "ai-knowledge",
+  "version": "0.1.0",
+  "description": "CLI-first knowledge workflow for AI learning materials.",
+  "type": "module",
+  "bin": {
+    "ai-knowledge": "./dist/cli/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "verify:change": "node scripts/verify-change.mjs"
+  },
+  "dependencies": {
+    "commander": "^14.0.2",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^24.10.1",
+    "eslint": "^9.39.1",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.4",
+    "vitest": "^4.0.14"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

@@ -1,0 +1,10 @@
+dist
+node_modules
+knowledge
+log
+.agents
+.claude
+.codex
+openspec
+specs
+pnpm-lock.yaml

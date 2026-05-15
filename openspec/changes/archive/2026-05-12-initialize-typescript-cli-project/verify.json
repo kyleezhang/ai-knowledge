@@ -1,0 +1,6 @@
+{
+  "commands": [
+    "node dist/cli/index.js --version",
+    "node dist/cli/index.js --help"
+  ]
+}
