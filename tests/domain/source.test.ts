@@ -35,4 +35,38 @@ describe('Source domain', () => {
       'Invalid source transition: ingested -> understanding_ready',
     );
   });
+
+  it('requires standard artifacts for processed sources', () => {
+    const source = create_test_source({
+      status: 'processed',
+      processing_artifacts: {
+        clean_text: 'processed/clean_text.md',
+      },
+    });
+
+    expect(() => validate_source_invariants(source)).toThrow(
+      'processed source must have standard processing_artifacts',
+    );
+  });
+
+  it('accepts processed sources with standard artifacts', () => {
+    const source = create_test_source({
+      status: 'processed',
+      processing_artifacts: {
+        clean_text: 'processed/clean_text.md',
+        segments: 'processed/segments.json',
+        metadata: 'processed/metadata.json',
+      },
+    });
+
+    expect(() => validate_source_invariants(source)).not.toThrow();
+  });
+
+  it('requires last_error for failed sources', () => {
+    const source = create_test_source({ status: 'failed' });
+
+    expect(() => validate_source_invariants(source)).toThrow(
+      'failed source must have last_error',
+    );
+  });
 });

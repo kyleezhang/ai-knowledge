@@ -114,11 +114,17 @@ export function validate_source_invariants(source: Source): void {
     throw new Error('candidate source must have origin_candidate_id');
   }
 
-  if (
-    statuses_after_processing.has(source.status) &&
-    Object.keys(source.processing_artifacts).length === 0
-  ) {
-    throw new Error('processed source must have processing_artifacts');
+  if (statuses_after_processing.has(source.status)) {
+    const artifacts = source.processing_artifacts;
+    if (
+      artifacts.clean_text === undefined ||
+      artifacts.segments === undefined ||
+      artifacts.metadata === undefined
+    ) {
+      throw new Error(
+        'processed source must have standard processing_artifacts',
+      );
+    }
   }
 
   if (

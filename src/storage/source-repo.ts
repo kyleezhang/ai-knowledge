@@ -86,6 +86,18 @@ export async function get_source(
   );
 }
 
+export async function save_source(
+  source: Source,
+  context: SourceRepoContext = {},
+): Promise<void> {
+  const parsed_source = parse_source(source);
+  await write_json({
+    file_path: source_json_path(parsed_source.id, context),
+    schema: SourceSchema,
+    data: parsed_source,
+  });
+}
+
 export async function list_sources(
   filter: SourceListFilter = {},
   context: SourceRepoContext = {},

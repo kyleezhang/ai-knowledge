@@ -1,11 +1,16 @@
 #!/usr/bin/env node
 
 import { pathToFileURL } from 'node:url';
+import type { DraftUnderstandingCandidate } from '../agents/schemas.js';
+import type { LlmClient } from '../agents/types.js';
+import type { UnderstandAgentInput } from '../agents/understand-agent.js';
 import { Command } from 'commander';
 import { init_workflow } from '../workflows/init-workflow.js';
 import { ingest_markdown_workflow } from '../workflows/ingest-markdown-workflow.js';
 import { list_sources_workflow } from '../workflows/list-sources-workflow.js';
+import { process_source_workflow } from '../workflows/process-source-workflow.js';
 import { show_source_workflow } from '../workflows/show-source-workflow.js';
+import { understand_source_workflow } from '../workflows/understand-source-workflow.js';
 import type {
   NextAction,
   WorkflowError,
@@ -19,7 +24,14 @@ export type CliIo = {
 };
 
 export function create_program(
-  input: { io?: CliIo; cwd?: string } = {},
+  input: {
+    io?: CliIo;
+    cwd?: string;
+    understand?: (input: {
+      llm_client: LlmClient;
+      agent_input: UnderstandAgentInput;
+    }) => Promise<DraftUnderstandingCandidate>;
+  } = {},
 ): Command {
   const io = input.io ?? default_io;
   const program = new Command();
@@ -73,6 +85,66 @@ export function create_program(
       print_source_summary(result.data.source, io);
       print_next_actions(result.next_actions, io);
     });
+
+  source
+    .command('process')
+    .argument('<source_id>')
+    .option('--json', 'Output JSON')
+    .description('Process a Markdown Source into artifacts.')
+    .action(async (source_id: string, options: { json?: boolean }) => {
+      const result = await process_source_workflow({
+        source_id,
+        cwd: input.cwd,
+      });
+
+      if (options.json) {
+        print_json_result(result, io);
+        return;
+      }
+
+      if (!handle_result(result, io)) {
+        return;
+      }
+
+      io.stdout('Source processed.');
+      print_source_summary(result.data.source, io);
+      print_next_actions(result.next_actions, io);
+    });
+
+  source
+    .command('understand')
+    .argument('<source_id>')
+    .option('--show', 'Show full draft understanding')
+    .option('--json', 'Output JSON')
+    .description('Generate draft understanding for a processed Source.')
+    .action(
+      async (
+        source_id: string,
+        options: { show?: boolean; json?: boolean },
+      ) => {
+        const result = await understand_source_workflow({
+          source_id,
+          cwd: input.cwd,
+          understand: input.understand,
+        });
+
+        if (options.json) {
+          print_json_result(result, io);
+          return;
+        }
+
+        if (!handle_result(result, io)) {
+          return;
+        }
+
+        io.stdout('Draft understanding ready.');
+        print_source_summary(result.data.source, io);
+        if (options.show) {
+          print_draft_understanding(result.data.draft_understanding, io);
+        }
+        print_next_actions(result.next_actions, io);
+      },
+    );
 
   source
     .command('list')
@@ -178,6 +250,26 @@ function print_next_actions(
   for (const action of next_actions) {
     io.stdout(`  ${action.label}: ${action.command}`);
   }
+}
+
+function print_draft_understanding(
+  draft: {
+    summary: string;
+    key_points: string[];
+    uncertainties: string[];
+    discussion_starters: string[];
+    generated_at: string;
+  },
+  io: CliIo,
+): void {
+  io.stdout('draft_understanding:');
+  io.stdout(`  summary: ${draft.summary}`);
+  io.stdout(`  key_points: ${JSON.stringify(draft.key_points)}`);
+  io.stdout(`  uncertainties: ${JSON.stringify(draft.uncertainties)}`);
+  io.stdout(
+    `  discussion_starters: ${JSON.stringify(draft.discussion_starters)}`,
+  );
+  io.stdout(`  generated_at: ${draft.generated_at}`);
 }
 
 function print_source_summary(

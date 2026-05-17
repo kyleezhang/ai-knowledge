@@ -1,9 +1,5 @@
-# Draft Understanding Specification
+## MODIFIED Requirements
 
-## Purpose
-
-This capability defines how the system creates the first structured interpretation of a processed `Source`. Draft understanding is discussion input, not approved knowledge.
-## Requirements
 ### Requirement: Draft Understanding Requires Processed Artifacts
 The system SHALL generate `draft_understanding` only from a `Source` that has status `processed` and valid processed artifacts. P0 Markdown draft understanding MUST consume `processing_artifacts.clean_text`, `processing_artifacts.segments`, and `processing_artifacts.metadata` through workflow-managed storage reads.
 
@@ -40,15 +36,6 @@ The system SHALL validate all agent-produced draft understanding before workflow
 - **THEN** the workflow adds `generated_at`
 - **AND** the model does not control that timestamp
 
-### Requirement: Draft Understanding Is Not Formal Knowledge
-
-The system SHALL treat `draft_understanding` as preliminary discussion material only.
-
-#### Scenario: Note is requested from draft understanding
-- **WHEN** a workflow attempts to create a formal `Note` from `draft_understanding` alone
-- **THEN** the system rejects the operation
-- **AND** requires discussion convergence and explicit user approval first
-
 ### Requirement: Draft Understanding Captures Uncertainty
 The system SHALL include uncertainty and discussion prompts in generated draft understanding.
 
@@ -61,6 +48,8 @@ The system SHALL include uncertainty and discussion prompts in generated draft u
 - **WHEN** the workflow truncates processed artifact input before calling the Understand Agent
 - **THEN** the agent input includes `input_truncated = true`
 - **AND** the generated uncertainties must reflect that the material may be incomplete
+
+## ADDED Requirements
 
 ### Requirement: Understand Agent Uses Draft Prompt
 The system SHALL use the `draft-understanding.md` prompt when generating `draft_understanding` through the Understand Agent.
@@ -104,4 +93,3 @@ The system SHALL expose draft understanding generation through `ai-knowledge sou
 - **WHEN** a user runs `ai-knowledge source understand <source_id> --json`
 - **THEN** the CLI returns a JSON representation of the workflow result
 - **AND** the JSON includes the generated `draft_understanding`
-

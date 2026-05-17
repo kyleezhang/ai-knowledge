@@ -19,6 +19,7 @@
     "verify:change": "node scripts/verify-change.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.96.0",
     "commander": "^14.0.2",
     "zod": "^4.1.13"
   },

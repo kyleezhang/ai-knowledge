@@ -2,4 +2,5 @@ node_modules/
 dist/
 knowledge/
 *.log
+.env*
 .DS_Store

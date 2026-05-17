@@ -1,6 +1,11 @@
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import {
+  read_processed_artifacts,
+  read_raw_original_markdown,
+  write_processed_artifacts,
+} from '../../src/storage/artifact-store.js';
 import { create_source, list_sources } from '../../src/storage/source-repo.js';
 import {
   create_temp_dir,
@@ -40,6 +45,168 @@ describe('source repo', () => {
     await expect(
       readFile(path.join(source_dir, 'raw', 'original.md'), 'utf8'),
     ).resolves.toBe('# Original\n\nKeep this exact content.\n');
+  });
+
+  it('reads raw Markdown and writes processed artifacts', async () => {
+    const cwd = await create_temp_dir();
+    const raw_file_path = await write_markdown_fixture(
+      cwd,
+      'source.md',
+      '# Original\n\nKeep this exact content.\n',
+    );
+    const source = create_test_source();
+
+    await create_source({ source, raw_file_path }, { cwd });
+    const raw_before = await read_raw_original_markdown(source.id, { cwd });
+    const paths = await write_processed_artifacts(
+      {
+        source,
+        clean_text: '# Original\n\nKeep this exact content.\n',
+        segments: [
+          { id: 'seg_0001', order: 1, heading_path: [], text: 'Body' },
+        ],
+        metadata: { title: 'Original' },
+      },
+      { cwd },
+    );
+    const raw_after = await read_raw_original_markdown(source.id, { cwd });
+
+    expect(paths).toEqual({
+      clean_text: 'processed/clean_text.md',
+      segments: 'processed/segments.json',
+      metadata: 'processed/metadata.json',
+    });
+    expect(raw_after).toBe(raw_before);
+
+    const source_dir = path.join(
+      cwd,
+      'knowledge',
+      'sources',
+      '2026',
+      '05',
+      source.id,
+    );
+    await expect(
+      readFile(path.join(source_dir, 'processed', 'clean_text.md'), 'utf8'),
+    ).resolves.toBe('# Original\n\nKeep this exact content.\n');
+    await expect(
+      readFile(path.join(source_dir, 'processed', 'segments.json'), 'utf8'),
+    ).resolves.toContain('seg_0001');
+    await expect(
+      readFile(path.join(source_dir, 'processed', 'metadata.json'), 'utf8'),
+    ).resolves.toContain('Original');
+  });
+
+  it('reads processed artifacts with schema validation', async () => {
+    const cwd = await create_temp_dir();
+    const raw_file_path = await write_markdown_fixture(cwd);
+    const source = create_test_source({
+      status: 'processed',
+      processing_artifacts: {
+        clean_text: 'processed/clean_text.md',
+        segments: 'processed/segments.json',
+        metadata: 'processed/metadata.json',
+      },
+    });
+
+    await create_source({ source, raw_file_path }, { cwd });
+    await write_processed_artifacts(
+      {
+        source,
+        clean_text: '# Title\n\nBody.\n',
+        segments: [
+          {
+            id: 'seg_0001',
+            order: 1,
+            heading_path: ['Title'],
+            text: 'Body.',
+          },
+        ],
+        metadata: {
+          title: 'Title',
+          headings: [{ level: 1, title: 'Title' }],
+          links: [],
+          segment_count: 1,
+          processed_at: '2026-05-14T00:00:00.000Z',
+        },
+      },
+      { cwd },
+    );
+
+    await expect(read_processed_artifacts(source, { cwd })).resolves.toEqual({
+      clean_text: '# Title\n\nBody.\n',
+      segments: [
+        {
+          id: 'seg_0001',
+          order: 1,
+          heading_path: ['Title'],
+          text: 'Body.',
+        },
+      ],
+      metadata: {
+        title: 'Title',
+        headings: [{ level: 1, title: 'Title' }],
+        links: [],
+        segment_count: 1,
+        processed_at: '2026-05-14T00:00:00.000Z',
+      },
+    });
+  });
+
+  it('rejects missing or invalid processed artifacts', async () => {
+    const cwd = await create_temp_dir();
+    const raw_file_path = await write_markdown_fixture(cwd);
+    const source = create_test_source({
+      status: 'processed',
+      processing_artifacts: {
+        clean_text: 'processed/clean_text.md',
+        segments: 'processed/segments.json',
+        metadata: 'processed/metadata.json',
+      },
+    });
+
+    await create_source({ source, raw_file_path }, { cwd });
+
+    await expect(read_processed_artifacts(source, { cwd })).rejects.toThrow(
+      'Failed to read processed artifacts',
+    );
+
+    await write_processed_artifacts(
+      {
+        source,
+        clean_text: 'Body',
+        segments: [{ bad: 'shape' }],
+        metadata: {},
+      },
+      { cwd },
+    );
+
+    await expect(read_processed_artifacts(source, { cwd })).rejects.toThrow(
+      'Failed to read processed artifacts',
+    );
+  });
+
+  it('rejects path traversal when writing artifacts', async () => {
+    const cwd = await create_temp_dir();
+    const raw_file_path = await write_markdown_fixture(cwd);
+    const source = create_test_source();
+
+    await create_source({ source, raw_file_path }, { cwd });
+
+    await expect(
+      write_processed_artifacts(
+        {
+          source: {
+            ...source,
+            id: '../bad',
+          },
+          clean_text: '',
+          segments: [],
+          metadata: {},
+        },
+        { cwd },
+      ),
+    ).rejects.toThrow();
   });
 
   it('lists Sources by updated_at descending and filters by status', async () => {
