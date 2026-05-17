@@ -1,0 +1,70 @@
+src/agents/config.ts
+  1c1ce515cda630ca 92
+  a392fbc6acf980fb 11 gitai:{"mixed_line_ranges":[{"Single":11}],"operations":[]}
+  c1fe611f4e98ad32 36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "f556f60ff7852e9186b971e412fc5d59d4bd1d54",
+  "prompts": {
+    "1c1ce515cda630ca": {
+      "agent_id": {
+        "tool": "trae-cue",
+        "id": "ai_tab-icr-8b66c64b-c66d-459c-9234-86ed5eeede27",
+        "model": "default"
+      },
+      "human_author": "zhangtao.kylee <zhangtao.kylee@bytedance.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 0,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    },
+    "a392fbc6acf980fb": {
+      "agent_id": {
+        "tool": "trae-cue",
+        "id": "ai_tab-icr-700be450-cb01-4f86-b2d6-2660f62b665c",
+        "model": "default"
+      },
+      "human_author": "zhangtao.kylee <zhangtao.kylee@bytedance.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 0,
+      "overriden_lines": 1
+    },
+    "c1fe611f4e98ad32": {
+      "agent_id": {
+        "tool": "trae-cue",
+        "id": "ai_tab-icr-bac10888-8980-4439-bc94-972fd4dbe3df",
+        "model": "default"
+      },
+      "human_author": "zhangtao.kylee <zhangtao.kylee@bytedance.com>",
+      "messages": [],
+      "total_additions": 1,
+      "total_deletions": 1,
+      "accepted_lines": 1,
+      "overriden_lines": 0
+    }
+  },
+  "attestation_metadata": {
+    "src/agents/config.ts": [
+      {
+        "hash": "a392fbc6acf980fb",
+        "line_ranges": [
+          {
+            "Single": 11
+          }
+        ],
+        "mixed_line_ranges": [
+          {
+            "Single": 11
+          }
+        ],
+        "operations": []
+      }
+    ]
+  },
+  "remote_transcripts": {}
+}
