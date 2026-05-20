@@ -1,3 +1,4 @@
+import type { Source } from '../domain/source.js';
 import type { StorageConfig } from '../storage/config.js';
 import { StorageError } from '../storage/errors.js';
 import { get_source } from '../storage/source-repo.js';
@@ -12,6 +13,7 @@ export type ShowSourceWorkflowInput = {
 
 export type ShowSourceWorkflowData = {
   source: SourceSummary;
+  raw_source: Source;
 };
 
 export async function show_source_workflow(
@@ -27,6 +29,7 @@ export async function show_source_workflow(
       ok: true,
       data: {
         source: summarize_source(source),
+        raw_source: source,
       },
     };
   } catch (error) {

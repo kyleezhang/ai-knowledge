@@ -1,3 +1,4 @@
+import type { Note, NoteStatus } from './note.js';
 import type { Source, SourceStatus } from './source.js';
 
 const source_transitions: Record<SourceStatus, readonly SourceStatus[]> = {
@@ -11,6 +12,27 @@ const source_transitions: Record<SourceStatus, readonly SourceStatus[]> = {
   archived: [],
   failed: ['processing', 'processed'],
 };
+
+const note_transitions: Record<NoteStatus, readonly NoteStatus[]> = {
+  draft: ['approved', 'archived'],
+  approved: ['superseded', 'archived'],
+  archived: [],
+  superseded: [],
+};
+
+export function transition_note(note: Note, target_status: NoteStatus): Note {
+  const allowed = note_transitions[note.status];
+  if (!allowed.includes(target_status)) {
+    throw new Error(
+      `Invalid note transition: ${note.status} -> ${target_status}`,
+    );
+  }
+
+  return {
+    ...note,
+    status: target_status,
+  };
+}
 
 export function transition_source(
   source: Source,

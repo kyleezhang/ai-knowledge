@@ -2,8 +2,16 @@ import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { create_program, type CliIo } from '../../src/cli/index.js';
-import type { DraftUnderstandingCandidate } from '../../src/agents/schemas.js';
+import type {
+  DiscussionAgentOutput,
+  DraftUnderstandingCandidate,
+  GroundedAnswer,
+  NoteCandidate,
+} from '../../src/agents/schemas.js';
 import type { LlmClient } from '../../src/agents/types.js';
+import type { AnswerAgentInput } from '../../src/agents/answer-agent.js';
+import type { DiscussionAgentInput } from '../../src/agents/discussion-agent.js';
+import type { NoteAgentInput } from '../../src/agents/note-agent.js';
 import type { UnderstandAgentInput } from '../../src/agents/understand-agent.js';
 import {
   create_temp_dir,
@@ -170,6 +178,92 @@ describe('source CLI', () => {
     expect(harness.stderr.join('\n')).toContain('code: INVALID_STATE');
   });
 
+  it('runs discussion REPL built-in commands and exits', async () => {
+    const cwd = await create_temp_dir();
+    const source_id = await ingest_process_understand(
+      cwd,
+      '# Discuss CLI\n\nBody.\n',
+    );
+    const harness = create_cli_harness(cwd, {
+      repl_input: async_iter([
+        '/status',
+        '/summary',
+        '/draft',
+        '/help',
+        '/exit',
+      ]),
+    });
+
+    await harness.run(['source', 'discuss', source_id]);
+
+    const output = harness.stdout.join('\n');
+    expect(output).toContain('Source discussion started.');
+    expect(output).toContain('ready_for_approval: false');
+    expect(output).toContain('Draft summary');
+    expect(output).toContain(
+      'Commands: /summary /draft /status /approve /exit /help',
+    );
+    expect(output).toContain('Discussion exited.');
+  });
+
+  it('dispatches normal REPL input to discussion workflow', async () => {
+    const cwd = await create_temp_dir();
+    const source_id = await ingest_process_understand(
+      cwd,
+      '# Discuss Message\n\nBody.\n',
+    );
+    const harness = create_cli_harness(cwd, {
+      repl_input: async_iter(['This matters.', '/exit']),
+      discuss: async ({ agent_input }) => ({
+        assistant_message: `Reply: ${agent_input.user_message}`,
+        discussion_summary_update: {
+          confirmed_points: ['Confirmed'],
+          open_questions: [],
+          unresolved_issues: [],
+          next_prompts: [],
+          ready_for_approval: true,
+        },
+      }),
+    });
+
+    await harness.run(['source', 'discuss', source_id]);
+
+    expect(harness.stdout.join('\n')).toContain('Reply: This matters.');
+  });
+
+  it('checks approve readiness in REPL', async () => {
+    const cwd = await create_temp_dir();
+    const source_id = await ingest_process_understand(
+      cwd,
+      '# Approve Check\n\nBody.\n',
+    );
+    const not_ready = create_cli_harness(cwd, {
+      repl_input: async_iter(['/approve', '/exit']),
+    });
+    await not_ready.run(['source', 'discuss', source_id]);
+    expect(not_ready.stdout.join('\n')).toContain(
+      'Discussion is not ready for approval.',
+    );
+
+    const ready = create_cli_harness(cwd, {
+      repl_input: async_iter(['Confirm this.', '/approve', '/exit']),
+      discuss: async () => ({
+        assistant_message: 'Ready now.',
+        discussion_summary_update: {
+          confirmed_points: ['Confirmed'],
+          open_questions: [],
+          unresolved_issues: [],
+          next_prompts: [],
+          ready_for_approval: true,
+        },
+      }),
+    });
+    await ready.run(['source', 'discuss', source_id]);
+    expect(ready.stdout.join('\n')).toContain(
+      `Ready for approval. Next: ai-knowledge source approve ${source_id}`,
+    );
+  });
+
   it('supports JSON output for source process', async () => {
     const cwd = await create_temp_dir();
     const file_path = await write_markdown_fixture(
@@ -241,6 +335,353 @@ describe('source CLI', () => {
     expect(second_process.stderr.join('\n')).toContain('code: INVALID_STATE');
   });
 
+  it('approves a ready Source discussion with human-readable output', async () => {
+    const cwd = await create_temp_dir();
+    const source_id = await ingest_process_understand(
+      cwd,
+      '# Approve CLI\n\nBody.\n',
+    );
+    await make_discussion_ready(cwd, source_id);
+    const harness = create_cli_harness(cwd);
+
+    await harness.run(['source', 'approve', source_id]);
+
+    const output = harness.stdout.join('\n');
+    expect(output).toContain('Source approved for note.');
+    expect(output).toContain('status: approved_for_note');
+    expect(output).toContain('discussion_status: closed');
+    expect(output).toContain(`ai-knowledge note compose ${source_id}`);
+  });
+
+  it('supports JSON output for source approve', async () => {
+    const cwd = await create_temp_dir();
+    const source_id = await ingest_process_understand(
+      cwd,
+      '# Approve JSON\n\nBody.\n',
+    );
+    await make_discussion_ready(cwd, source_id);
+    const harness = create_cli_harness(cwd);
+
+    await harness.run(['source', 'approve', source_id, '--json']);
+
+    expect(JSON.parse(harness.stdout[0])).toMatchObject({
+      ok: true,
+      data: { source: { status: 'approved_for_note' } },
+      next_actions: [{ command: `ai-knowledge note compose ${source_id}` }],
+    });
+  });
+
+  it('prints structured errors for source approve failures', async () => {
+    const cwd = await create_temp_dir();
+    const source_id = await ingest_process_understand(
+      cwd,
+      '# Approve Error\n\nBody.\n',
+    );
+    const wrong_status = create_cli_harness(cwd);
+
+    await wrong_status.run(['source', 'approve', source_id]);
+
+    expect(wrong_status.exit_code).toBe(1);
+    expect(wrong_status.stderr.join('\n')).toContain('code: INVALID_STATE');
+
+    await make_discussion_not_ready(cwd, source_id);
+    const not_ready = create_cli_harness(cwd);
+
+    await not_ready.run(['source', 'approve', source_id]);
+
+    expect(not_ready.exit_code).toBe(1);
+    expect(not_ready.stderr.join('\n')).toContain('code: INVALID_STATE');
+  });
+
+  it('composes, renders, lists, and shows Notes', async () => {
+    const cwd = await create_temp_dir();
+    const source_id = await create_approved_source(cwd);
+    const compose_harness = create_cli_harness(cwd, {
+      compose_note: async ({ agent_input }) => ({
+        title: 'CLI Note',
+        conclusions: agent_input.discussion_summary.confirmed_points,
+        why_it_matters: ['It matters.'],
+        current_understanding: 'Current understanding.',
+        open_questions: [],
+        related_note_ids: [],
+        source_refs: agent_input.source_refs,
+      }),
+    });
+
+    await compose_harness.run(['note', 'compose', source_id]);
+
+    expect(compose_harness.stdout.join('\n')).toContain('Note composed.');
+    expect(compose_harness.stdout.join('\n')).toContain('status: draft');
+    const note_id_match = /id: (note_\S+)/u.exec(
+      compose_harness.stdout.join('\n'),
+    );
+    expect(note_id_match).not.toBeNull();
+    const note_id = note_id_match![1];
+
+    const render_harness = create_cli_harness(cwd);
+    await render_harness.run(['note', 'render', note_id]);
+    expect(render_harness.stdout.join('\n')).toContain('Note rendered.');
+
+    const list_harness = create_cli_harness(cwd);
+    await list_harness.run(['note', 'list', '--status', 'draft']);
+    expect(list_harness.stdout.join('\n')).toContain(note_id);
+
+    const show_harness = create_cli_harness(cwd);
+    await show_harness.run(['note', 'show', note_id]);
+    expect(show_harness.stdout.join('\n')).toContain('conclusions:');
+    expect(show_harness.stdout.join('\n')).not.toContain('## 当前理解');
+  });
+
+  it('supports JSON output for note compose/render/list/show', async () => {
+    const cwd = await create_temp_dir();
+    const source_id = await create_approved_source(cwd);
+    const compose_harness = create_cli_harness(cwd, {
+      compose_note: async ({ agent_input }) => ({
+        title: 'JSON Note',
+        conclusions: agent_input.discussion_summary.confirmed_points,
+        why_it_matters: ['It matters.'],
+        current_understanding: 'Current understanding.',
+        open_questions: [],
+        related_note_ids: [],
+        source_refs: agent_input.source_refs,
+      }),
+    });
+
+    await compose_harness.run(['note', 'compose', source_id, '--json']);
+    const compose_json = JSON.parse(compose_harness.stdout[0]) as {
+      ok: true;
+      data: { note_id: string };
+    };
+
+    const render_harness = create_cli_harness(cwd);
+    await render_harness.run([
+      'note',
+      'render',
+      compose_json.data.note_id,
+      '--json',
+    ]);
+    const list_harness = create_cli_harness(cwd);
+    await list_harness.run(['note', 'list', '--json']);
+    const show_harness = create_cli_harness(cwd);
+    await show_harness.run([
+      'note',
+      'show',
+      compose_json.data.note_id,
+      '--json',
+    ]);
+
+    expect(JSON.parse(render_harness.stdout[0])).toMatchObject({ ok: true });
+    expect(JSON.parse(list_harness.stdout[0])).toMatchObject({
+      ok: true,
+      data: { notes: [{ id: compose_json.data.note_id }] },
+    });
+    expect(JSON.parse(show_harness.stdout[0])).toMatchObject({
+      ok: true,
+      data: { note: { id: compose_json.data.note_id, status: 'draft' } },
+    });
+  });
+
+  it('prints note command errors', async () => {
+    const cwd = await create_temp_dir();
+    const source_id = await ingest_process_understand(
+      cwd,
+      '# Note Error\n\nBody.\n',
+    );
+    const compose_harness = create_cli_harness(cwd, {
+      compose_note: async () => ({
+        title: 'Bad Note',
+        conclusions: ['Confirmed'],
+        why_it_matters: [],
+        current_understanding: '',
+        open_questions: [],
+        related_note_ids: [],
+        source_refs: [],
+      }),
+    });
+
+    await compose_harness.run(['note', 'compose', source_id]);
+
+    expect(compose_harness.exit_code).toBe(1);
+    expect(compose_harness.stderr.join('\n')).toContain('code: INVALID_INPUT');
+  });
+
+  it('lints a draft note with human-readable output', async () => {
+    const cwd = await create_temp_dir();
+    const note_id = await compose_cli_note(cwd, 'Lint CLI Note');
+    const harness = create_cli_harness(cwd);
+
+    await harness.run(['note', 'lint', note_id]);
+
+    expect(harness.stdout.join('\n')).toContain('Note lint passed.');
+    expect(harness.stdout.join('\n')).toContain('status: draft');
+    expect(harness.stdout.join('\n')).toContain(
+      `ai-knowledge note approve ${note_id}`,
+    );
+  });
+
+  it('supports JSON output for note lint', async () => {
+    const cwd = await create_temp_dir();
+    const note_id = await compose_cli_note(cwd, 'Lint JSON Note');
+    const harness = create_cli_harness(cwd);
+
+    await harness.run(['note', 'lint', note_id, '--json']);
+
+    expect(JSON.parse(harness.stdout[0])).toMatchObject({
+      ok: true,
+      data: {
+        note_id,
+        lint: { passed: true },
+      },
+      next_actions: [{ command: `ai-knowledge note approve ${note_id}` }],
+    });
+  });
+
+  it('prints note lint failures', async () => {
+    const cwd = await create_temp_dir();
+    const note_id = await compose_cli_note(cwd, 'Lint Fail Note');
+    const render_harness = create_cli_harness(cwd);
+    await render_harness.run(['note', 'render', note_id]);
+    const { save_note_markdown } =
+      await import('../../src/storage/note-repo.js');
+    await save_note_markdown(note_id, '# Broken\n', { cwd });
+    const harness = create_cli_harness(cwd);
+
+    await harness.run(['note', 'lint', note_id]);
+
+    expect(harness.exit_code).toBe(1);
+    expect(harness.stdout.join('\n')).toContain('Note lint failed.');
+    expect(harness.stderr.join('\n')).toContain('code: QA_FAILED');
+  });
+
+  it('rejects lint for non-draft note', async () => {
+    const cwd = await create_temp_dir();
+    const note_id = await compose_cli_note(cwd, 'Archived Lint Note');
+    const { get_note, save_note } =
+      await import('../../src/storage/note-repo.js');
+    const note = await get_note(note_id, { cwd });
+    await save_note({ ...note, status: 'archived' }, { cwd });
+    const harness = create_cli_harness(cwd);
+
+    await harness.run(['note', 'lint', note_id]);
+
+    expect(harness.exit_code).toBe(1);
+    expect(harness.stderr.join('\n')).toContain('code: INVALID_STATE');
+  });
+
+  it('approves and indexes notes with human-readable output', async () => {
+    const cwd = await create_temp_dir();
+    const note_id = await compose_cli_note(cwd, 'Approve Index CLI Note');
+    await lint_cli_note(cwd, note_id);
+    const approve_harness = create_cli_harness(cwd);
+
+    await approve_harness.run(['note', 'approve', note_id]);
+
+    expect(approve_harness.stdout.join('\n')).toContain('Note approved.');
+    expect(approve_harness.stdout.join('\n')).toContain('status: approved');
+    expect(approve_harness.stdout.join('\n')).toContain(
+      `ai-knowledge note index ${note_id}`,
+    );
+
+    const index_harness = create_cli_harness(cwd);
+    await index_harness.run(['note', 'index', note_id]);
+    expect(index_harness.stdout.join('\n')).toContain('Note indexed.');
+    expect(index_harness.stdout.join('\n')).toContain(`note_id: ${note_id}`);
+  });
+
+  it('supports JSON output for note approve and index', async () => {
+    const cwd = await create_temp_dir();
+    const note_id = await compose_cli_note(cwd, 'Approve Index JSON Note');
+    await lint_cli_note(cwd, note_id);
+    const approve_harness = create_cli_harness(cwd);
+    await approve_harness.run(['note', 'approve', note_id, '--json']);
+    const index_harness = create_cli_harness(cwd);
+    await index_harness.run(['note', 'index', note_id, '--json']);
+
+    expect(JSON.parse(approve_harness.stdout[0])).toMatchObject({
+      ok: true,
+      data: { note: { status: 'approved' } },
+      next_actions: [{ command: `ai-knowledge note index ${note_id}` }],
+    });
+    expect(JSON.parse(index_harness.stdout[0])).toMatchObject({
+      ok: true,
+      data: { index_entry: { note_id, status: 'approved', vector_ref: null } },
+    });
+  });
+
+  it('rejects invalid note approve and index requests', async () => {
+    const cwd = await create_temp_dir();
+    const note_id = await compose_cli_note(cwd, 'Approve Index Error Note');
+    const approve_harness = create_cli_harness(cwd);
+    await approve_harness.run(['note', 'approve', note_id]);
+    expect(approve_harness.exit_code).toBe(1);
+    expect(approve_harness.stderr.join('\n')).toContain('code: INVALID_STATE');
+
+    const index_harness = create_cli_harness(cwd);
+    await index_harness.run(['note', 'index', note_id]);
+    expect(index_harness.exit_code).toBe(1);
+    expect(index_harness.stderr.join('\n')).toContain('code: INVALID_STATE');
+  });
+
+  it('answers with no confirmed knowledge when no index matches', async () => {
+    const cwd = await create_temp_dir();
+    const harness = create_cli_harness(cwd);
+
+    await harness.run(['answer', 'unknown question']);
+
+    expect(harness.stdout.join('\n')).toContain('没有相关已确认知识');
+  });
+
+  it('answers from approved indexed notes', async () => {
+    const cwd = await create_temp_dir();
+    const note_id = await create_indexed_note(cwd, 'Answer CLI Note');
+    const harness = create_cli_harness(cwd, {
+      answer: async ({ agent_input }) => ({
+        conclusion: 'Grounded conclusion.',
+        cited_notes: agent_input.approved_notes.map((note) => ({
+          note_id: note.id,
+          title: note.title,
+          relevant_points: note.conclusions,
+        })),
+        unconfirmed_materials: [],
+        limitations: ['P0 keyword retrieval only.'],
+      }),
+    });
+
+    await harness.run(['answer', 'answer cli', '--top-k', '1']);
+
+    const output = harness.stdout.join('\n');
+    expect(output).toContain('Grounded conclusion.');
+    expect(output).toContain(note_id);
+    expect(output).toContain('P0 keyword retrieval only.');
+  });
+
+  it('supports JSON output for answer', async () => {
+    const cwd = await create_temp_dir();
+    const note_id = await create_indexed_note(cwd, 'Answer JSON Note');
+    const harness = create_cli_harness(cwd, {
+      answer: async ({ agent_input }) => ({
+        conclusion: 'JSON conclusion.',
+        cited_notes: agent_input.approved_notes.map((note) => ({
+          note_id: note.id,
+          title: note.title,
+          relevant_points: note.conclusions,
+        })),
+        unconfirmed_materials: [],
+        limitations: [],
+      }),
+    });
+
+    await harness.run(['answer', 'answer json', '--json']);
+
+    expect(JSON.parse(harness.stdout[0])).toMatchObject({
+      ok: true,
+      data: {
+        matched_note_ids: [note_id],
+        answer: { conclusion: 'JSON conclusion.' },
+      },
+    });
+  });
+
   it('supports JSON output for ingest, list, and show', async () => {
     const cwd = await create_temp_dir();
     const file_path = await write_markdown_fixture(
@@ -310,6 +751,23 @@ describe('source CLI', () => {
   });
 });
 
+async function ingest_process_understand(
+  cwd: string,
+  content: string,
+): Promise<string> {
+  const source_id = await ingest_and_process(cwd, content);
+  const understand_harness = create_cli_harness(cwd, {
+    understand: async () => ({
+      summary: 'Draft summary',
+      key_points: ['Draft point'],
+      uncertainties: [],
+      discussion_starters: [],
+    }),
+  });
+  await understand_harness.run(['source', 'understand', source_id]);
+  return source_id;
+}
+
 async function ingest_and_process(
   cwd: string,
   content: string,
@@ -332,6 +790,102 @@ async function ingest_and_process(
   return ingest_json.data.source_id;
 }
 
+async function compose_cli_note(cwd: string, title: string): Promise<string> {
+  const source_id = await create_approved_source(cwd);
+  const compose_harness = create_cli_harness(cwd, {
+    compose_note: async ({ agent_input }) => ({
+      title,
+      conclusions: agent_input.discussion_summary.confirmed_points,
+      why_it_matters: ['It matters.'],
+      current_understanding: 'Current understanding.',
+      open_questions: [],
+      related_note_ids: [],
+      source_refs: agent_input.source_refs,
+    }),
+  });
+  await compose_harness.run(['note', 'compose', source_id, '--json']);
+  const json = JSON.parse(compose_harness.stdout[0]) as {
+    ok: true;
+    data: { note_id: string };
+  };
+  return json.data.note_id;
+}
+
+async function create_indexed_note(
+  cwd: string,
+  title: string,
+): Promise<string> {
+  const note_id = await compose_cli_note(cwd, title);
+  await lint_cli_note(cwd, note_id);
+  const approve_harness = create_cli_harness(cwd);
+  await approve_harness.run(['note', 'approve', note_id]);
+  const index_harness = create_cli_harness(cwd);
+  await index_harness.run(['note', 'index', note_id]);
+  return note_id;
+}
+
+async function lint_cli_note(cwd: string, note_id: string): Promise<void> {
+  const lint_harness = create_cli_harness(cwd);
+  await lint_harness.run(['note', 'lint', note_id]);
+}
+
+async function create_approved_source(cwd: string): Promise<string> {
+  const source_id = await ingest_process_understand(
+    cwd,
+    '# Approved Source\n\nBody.\n',
+  );
+  await make_discussion_ready(cwd, source_id);
+  const approve_harness = create_cli_harness(cwd);
+  await approve_harness.run(['source', 'approve', source_id]);
+  return source_id;
+}
+
+async function make_discussion_ready(
+  cwd: string,
+  source_id: string,
+): Promise<void> {
+  const harness = create_cli_harness(cwd, {
+    repl_input: async_iter(['Ready now.', '/exit']),
+    discuss: async () => ({
+      assistant_message: 'Ready.',
+      discussion_summary_update: {
+        confirmed_points: ['Confirmed'],
+        open_questions: [],
+        unresolved_issues: [],
+        next_prompts: [],
+        ready_for_approval: true,
+      },
+    }),
+  });
+  await harness.run(['source', 'discuss', source_id]);
+}
+
+async function make_discussion_not_ready(
+  cwd: string,
+  source_id: string,
+): Promise<void> {
+  const harness = create_cli_harness(cwd, {
+    repl_input: async_iter(['Not ready.', '/exit']),
+    discuss: async () => ({
+      assistant_message: 'Not ready.',
+      discussion_summary_update: {
+        confirmed_points: ['Confirmed'],
+        open_questions: ['Question'],
+        unresolved_issues: [],
+        next_prompts: [],
+        ready_for_approval: false,
+      },
+    }),
+  });
+  await harness.run(['source', 'discuss', source_id]);
+}
+
+async function* async_iter(items: string[]): AsyncIterable<string> {
+  for (const item of items) {
+    yield item;
+  }
+}
+
 function create_cli_harness(
   cwd: string,
   options: {
@@ -339,6 +893,19 @@ function create_cli_harness(
       llm_client: LlmClient;
       agent_input: UnderstandAgentInput;
     }) => Promise<DraftUnderstandingCandidate>;
+    discuss?: (input: {
+      llm_client: LlmClient;
+      agent_input: DiscussionAgentInput;
+    }) => Promise<DiscussionAgentOutput>;
+    compose_note?: (input: {
+      llm_client: LlmClient;
+      agent_input: NoteAgentInput;
+    }) => Promise<NoteCandidate>;
+    answer?: (input: {
+      llm_client: LlmClient;
+      agent_input: AnswerAgentInput;
+    }) => Promise<GroundedAnswer>;
+    repl_input?: AsyncIterable<string>;
   } = {},
 ): {
   stdout: string[];
@@ -368,6 +935,10 @@ function create_cli_harness(
         io,
         cwd,
         understand: options.understand,
+        discuss: options.discuss,
+        compose_note: options.compose_note,
+        answer: options.answer,
+        repl_input: options.repl_input,
       }).parseAsync(['node', 'ai-knowledge', ...args]);
     },
   };

@@ -3,9 +3,7 @@
 ## Purpose
 
 This capability defines how a `Source` enters and moves through the learning workflow. A `Source` is the main working object for imported learning material before it becomes approved knowledge.
-
 ## Requirements
-
 ### Requirement: Markdown Import Creates Source
 
 The system SHALL create a `Source` when a user imports a Markdown file in P0 through `ai-knowledge source ingest markdown <file>`.
@@ -113,3 +111,38 @@ The system SHALL treat automatic candidate conversion as outside P0 unless a lat
 - **WHEN** a workflow attempts to convert a `Candidate` into a `Source` without an accepted scope-expansion change
 - **THEN** the capability is considered unsupported in P0
 - **AND** no main knowledge object is created from the candidate
+
+### Requirement: Source Approval Advances To Note Readiness
+The system SHALL expose `ai-knowledge source approve <source_id>` to move a converged and explicitly confirmed Source from `discussing` to `approved_for_note`.
+
+#### Scenario: Source approval succeeds
+- **WHEN** a Source has status `discussing`
+- **AND** `discussion_summary.ready_for_approval = true`
+- **AND** `discussion_summary.confirmed_points` is non-empty
+- **THEN** the workflow transitions the Source to `approved_for_note`
+- **AND** sets `discussion_summary.discussion_status = closed`
+- **AND** returns next action `ai-knowledge note compose <source_id>`
+
+#### Scenario: Source is not discussing
+- **WHEN** `ai-knowledge source approve <source_id>` is run for a Source whose status is not `discussing`
+- **THEN** the workflow rejects the operation
+- **AND** leaves the existing Source status unchanged
+
+#### Scenario: Source approval JSON output is requested
+- **WHEN** the user runs `ai-knowledge source approve <source_id> --json`
+- **THEN** the CLI returns a JSON representation of the workflow result
+- **AND** the JSON includes the approved Source summary and next action
+
+### Requirement: Source Records Composed Notes
+The system SHALL record Note ids on the Source after successful Note composition.
+
+#### Scenario: Note compose updates Source
+- **WHEN** a Note is composed from a Source with status `approved_for_note`
+- **THEN** the Source records the composed Note id in `note_ids`
+- **AND** the Source transitions to `noted`
+
+#### Scenario: Note compose is requested after Source is already noted
+- **WHEN** note composition is requested for a Source whose status is `noted`
+- **THEN** P0 rejects the operation
+- **AND** does not create an additional parallel main Note
+

@@ -1,14 +1,33 @@
 #!/usr/bin/env node
 
+import { createInterface } from 'node:readline/promises';
 import { pathToFileURL } from 'node:url';
-import type { DraftUnderstandingCandidate } from '../agents/schemas.js';
+import type {
+  DiscussionAgentOutput,
+  DraftUnderstandingCandidate,
+  GroundedAnswer,
+  NoteCandidate,
+} from '../agents/schemas.js';
 import type { LlmClient } from '../agents/types.js';
+import type { AnswerAgentInput } from '../agents/answer-agent.js';
+import type { DiscussionAgentInput } from '../agents/discussion-agent.js';
+import type { NoteAgentInput } from '../agents/note-agent.js';
 import type { UnderstandAgentInput } from '../agents/understand-agent.js';
 import { Command } from 'commander';
+import { answer_question_workflow } from '../workflows/answer-question-workflow.js';
+import { approve_note_workflow } from '../workflows/approve-note-workflow.js';
+import { approve_source_workflow } from '../workflows/approve-source-workflow.js';
+import { compose_note_workflow } from '../workflows/compose-note-workflow.js';
+import { discuss_source_workflow } from '../workflows/discuss-source-workflow.js';
+import { index_note_workflow } from '../workflows/index-note-workflow.js';
 import { init_workflow } from '../workflows/init-workflow.js';
 import { ingest_markdown_workflow } from '../workflows/ingest-markdown-workflow.js';
+import { lint_note_workflow } from '../workflows/lint-note-workflow.js';
+import { list_notes_workflow } from '../workflows/list-notes-workflow.js';
 import { list_sources_workflow } from '../workflows/list-sources-workflow.js';
 import { process_source_workflow } from '../workflows/process-source-workflow.js';
+import { render_note_workflow } from '../workflows/render-note-workflow.js';
+import { show_note_workflow } from '../workflows/show-note-workflow.js';
 import { show_source_workflow } from '../workflows/show-source-workflow.js';
 import { understand_source_workflow } from '../workflows/understand-source-workflow.js';
 import type {
@@ -31,6 +50,19 @@ export function create_program(
       llm_client: LlmClient;
       agent_input: UnderstandAgentInput;
     }) => Promise<DraftUnderstandingCandidate>;
+    discuss?: (input: {
+      llm_client: LlmClient;
+      agent_input: DiscussionAgentInput;
+    }) => Promise<DiscussionAgentOutput>;
+    compose_note?: (input: {
+      llm_client: LlmClient;
+      agent_input: NoteAgentInput;
+    }) => Promise<NoteCandidate>;
+    answer?: (input: {
+      llm_client: LlmClient;
+      agent_input: AnswerAgentInput;
+    }) => Promise<GroundedAnswer>;
+    repl_input?: AsyncIterable<string>;
   } = {},
 ): Command {
   const io = input.io ?? default_io;
@@ -54,6 +86,34 @@ export function create_program(
       io.stdout('Knowledge storage initialized.');
       io.stdout(`Root: ${result.data.knowledge_dir}`);
     });
+
+  program
+    .command('answer')
+    .argument('<question>')
+    .option('--top-k <n>', 'Maximum approved Notes to retrieve')
+    .option('--json', 'Output JSON')
+    .description('Answer a question from approved Notes.')
+    .action(
+      async (question: string, options: { topK?: string; json?: boolean }) => {
+        const top_k =
+          options.topK === undefined ? undefined : Number(options.topK);
+        const result = await answer_question_workflow({
+          question,
+          top_k,
+          cwd: input.cwd,
+          answer: input.answer,
+        });
+
+        if (options.json) {
+          print_json_result(result, io);
+          return;
+        }
+        if (!handle_result(result, io)) {
+          return;
+        }
+        print_grounded_answer(result.data.answer, io);
+      },
+    );
 
   const source = program.command('source').description('Manage Sources.');
 
@@ -147,6 +207,45 @@ export function create_program(
     );
 
   source
+    .command('discuss')
+    .argument('<source_id>')
+    .description('Discuss a Source interactively.')
+    .action(async (source_id: string) => {
+      await run_discuss_repl({
+        source_id,
+        cwd: input.cwd,
+        io,
+        input: input.repl_input,
+        discuss: input.discuss,
+      });
+    });
+
+  source
+    .command('approve')
+    .argument('<source_id>')
+    .option('--json', 'Output JSON')
+    .description('Approve a converged Source discussion for note composition.')
+    .action(async (source_id: string, options: { json?: boolean }) => {
+      const result = await approve_source_workflow({
+        source_id,
+        cwd: input.cwd,
+      });
+
+      if (options.json) {
+        print_json_result(result, io);
+        return;
+      }
+
+      if (!handle_result(result, io)) {
+        return;
+      }
+
+      io.stdout('Source approved for note.');
+      print_source_summary(result.data.source, io);
+      print_next_actions(result.next_actions, io);
+    });
+
+  source
     .command('list')
     .option('--status <status>')
     .option('--json', 'Output JSON')
@@ -178,6 +277,160 @@ export function create_program(
       }
     });
 
+  const note = program.command('note').description('Manage Notes.');
+
+  note
+    .command('compose')
+    .argument('<source_id>')
+    .option('--json', 'Output JSON')
+    .description('Compose a draft Note from an approved Source.')
+    .action(async (source_id: string, options: { json?: boolean }) => {
+      const result = await compose_note_workflow({
+        source_id,
+        cwd: input.cwd,
+        compose: input.compose_note,
+      });
+
+      if (options.json) {
+        print_json_result(result, io);
+        return;
+      }
+
+      if (!handle_result(result, io)) {
+        return;
+      }
+
+      io.stdout('Note composed.');
+      print_note_summary(result.data.note, io);
+      print_next_actions(result.next_actions, io);
+    });
+
+  note
+    .command('render')
+    .argument('<note_id>')
+    .option('--json', 'Output JSON')
+    .description('Render note.md from note.json.')
+    .action(async (note_id: string, options: { json?: boolean }) => {
+      const result = await render_note_workflow({ note_id, cwd: input.cwd });
+      if (options.json) {
+        print_json_result(result, io);
+        return;
+      }
+      if (!handle_result(result, io)) {
+        return;
+      }
+      io.stdout('Note rendered.');
+      print_note_summary(result.data.note, io);
+    });
+
+  note
+    .command('lint')
+    .argument('<note_id>')
+    .option('--json', 'Output JSON')
+    .description('Run QA lint for a draft Note.')
+    .action(async (note_id: string, options: { json?: boolean }) => {
+      const result = await lint_note_workflow({ note_id, cwd: input.cwd });
+      if (options.json) {
+        print_json_result(result, io);
+        return;
+      }
+      if (result.ok) {
+        io.stdout('Note lint passed.');
+        print_note_summary(result.data.note, io);
+        print_next_actions(result.next_actions, io);
+        return;
+      }
+      io.stdout('Note lint failed.');
+      if (result.error.details !== undefined) {
+        io.stdout(`failures: ${JSON.stringify(result.error.details)}`);
+      }
+      print_error(result.error, io);
+      io.set_exit_code(1);
+    });
+
+  note
+    .command('approve')
+    .argument('<note_id>')
+    .option('--json', 'Output JSON')
+    .description('Approve a draft Note that passed lint.')
+    .action(async (note_id: string, options: { json?: boolean }) => {
+      const result = await approve_note_workflow({ note_id, cwd: input.cwd });
+      if (options.json) {
+        print_json_result(result, io);
+        return;
+      }
+      if (!handle_result(result, io)) {
+        return;
+      }
+      io.stdout('Note approved.');
+      print_note_summary(result.data.note, io);
+      print_next_actions(result.next_actions, io);
+    });
+
+  note
+    .command('index')
+    .argument('<note_id>')
+    .option('--json', 'Output JSON')
+    .description('Index an approved Note.')
+    .action(async (note_id: string, options: { json?: boolean }) => {
+      const result = await index_note_workflow({ note_id, cwd: input.cwd });
+      if (options.json) {
+        print_json_result(result, io);
+        return;
+      }
+      if (!handle_result(result, io)) {
+        return;
+      }
+      io.stdout('Note indexed.');
+      io.stdout(`note_id: ${result.data.index_entry.note_id}`);
+      io.stdout(`summary: ${result.data.index_entry.summary}`);
+    });
+
+  note
+    .command('list')
+    .option('--status <status>')
+    .option('--json', 'Output JSON')
+    .description('List Notes.')
+    .action(async (options: { status?: string; json?: boolean }) => {
+      const result = await list_notes_workflow({
+        status: options.status as never,
+        cwd: input.cwd,
+      });
+      if (options.json) {
+        print_json_result(result, io);
+        return;
+      }
+      if (!handle_result(result, io)) {
+        return;
+      }
+      if (result.data.notes.length === 0) {
+        io.stdout('No notes found.');
+        return;
+      }
+      for (const item of result.data.notes) {
+        io.stdout(
+          `${item.id}\t${item.status}\t${item.updated_at}\t${item.title}`,
+        );
+      }
+    });
+
+  note
+    .command('show')
+    .argument('<note_id>')
+    .option('--json', 'Output JSON')
+    .description('Show Note control summary.')
+    .action(async (note_id: string, options: { json?: boolean }) => {
+      const result = await show_note_workflow({ note_id, cwd: input.cwd });
+      if (options.json) {
+        print_json_result(result, io);
+        return;
+      }
+      if (!handle_result(result, io)) {
+        return;
+      }
+      print_note_summary(result.data.note, io);
+    });
+
   source
     .command('show')
     .argument('<source_id>')
@@ -202,6 +455,127 @@ export function create_program(
     });
 
   return program;
+}
+
+type DiscussReplInput = {
+  source_id: string;
+  cwd?: string;
+  io: CliIo;
+  input?: AsyncIterable<string>;
+  discuss?: (input: {
+    llm_client: LlmClient;
+    agent_input: DiscussionAgentInput;
+  }) => Promise<DiscussionAgentOutput>;
+};
+
+async function run_discuss_repl(input: DiscussReplInput): Promise<void> {
+  const initial = await show_source_workflow({
+    source_id: input.source_id,
+    cwd: input.cwd,
+  });
+  if (!handle_result(initial, input.io)) {
+    return;
+  }
+
+  input.io.stdout('Source discussion started.');
+  print_source_summary(initial.data.source, input.io);
+  input.io.stdout('Commands: /summary /draft /status /approve /exit /help');
+
+  for await (const line of input.input ?? default_repl_input()) {
+    const message = line.trim();
+    if (message.length === 0) {
+      continue;
+    }
+    if (await handle_discuss_command(input, message)) {
+      if (message === '/exit') {
+        return;
+      }
+      continue;
+    }
+
+    const result = await discuss_source_workflow({
+      source_id: input.source_id,
+      user_message: message,
+      cwd: input.cwd,
+      discuss: input.discuss,
+    });
+    if (!handle_result(result, input.io)) {
+      continue;
+    }
+    input.io.stdout(result.data.assistant_message);
+  }
+}
+
+async function handle_discuss_command(
+  input: DiscussReplInput,
+  command: string,
+): Promise<boolean> {
+  if (!command.startsWith('/')) {
+    return false;
+  }
+
+  if (command === '/help') {
+    input.io.stdout('Commands: /summary /draft /status /approve /exit /help');
+    return true;
+  }
+  if (command === '/exit') {
+    input.io.stdout('Discussion exited.');
+    return true;
+  }
+
+  const current = await show_source_workflow({
+    source_id: input.source_id,
+    cwd: input.cwd,
+  });
+  if (!handle_result(current, input.io)) {
+    return true;
+  }
+  const source = current.data.source;
+  const raw_source = current.data.raw_source;
+
+  if (command === '/summary') {
+    input.io.stdout(JSON.stringify(raw_source.discussion_summary, null, 2));
+    return true;
+  }
+  if (command === '/draft') {
+    input.io.stdout(JSON.stringify(raw_source.draft_understanding, null, 2));
+    return true;
+  }
+  if (command === '/status') {
+    input.io.stdout(`status: ${source.status}`);
+    input.io.stdout(
+      `ready_for_approval: ${raw_source.discussion_summary.ready_for_approval}`,
+    );
+    return true;
+  }
+  if (command === '/approve') {
+    const summary = raw_source.discussion_summary;
+    if (!summary.ready_for_approval || summary.confirmed_points.length === 0) {
+      input.io.stdout('Discussion is not ready for approval.');
+      return true;
+    }
+    input.io.stdout(
+      `Ready for approval. Next: ai-knowledge source approve ${input.source_id}`,
+    );
+    return true;
+  }
+
+  input.io.stdout(`Unknown command: ${command}`);
+  return true;
+}
+
+async function* default_repl_input(): AsyncIterable<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  rl.setPrompt('> ');
+  rl.prompt();
+  try {
+    for await (const line of rl) {
+      yield line;
+      rl.prompt();
+    }
+  } finally {
+    rl.close();
+  }
 }
 
 const default_io: CliIo = {
@@ -270,6 +644,44 @@ function print_draft_understanding(
     `  discussion_starters: ${JSON.stringify(draft.discussion_starters)}`,
   );
   io.stdout(`  generated_at: ${draft.generated_at}`);
+}
+
+function print_grounded_answer(answer: GroundedAnswer, io: CliIo): void {
+  io.stdout('## 综合结论');
+  io.stdout(answer.conclusion);
+  io.stdout('## 依据的已确认笔记');
+  for (const note of answer.cited_notes) {
+    io.stdout(
+      `- ${note.title} (${note.note_id}): ${note.relevant_points.join('; ')}`,
+    );
+  }
+  io.stdout('## 不足与边界');
+  for (const limitation of answer.limitations) {
+    io.stdout(`- ${limitation}`);
+  }
+}
+
+function print_note_summary(
+  note_summary: {
+    id: string;
+    title: string;
+    status: string;
+    updated_at: string;
+    conclusions: string[];
+    source_refs: unknown[];
+    related_note_ids: string[];
+    quality_checks: unknown;
+  },
+  io: CliIo,
+): void {
+  io.stdout(`id: ${note_summary.id}`);
+  io.stdout(`title: ${note_summary.title}`);
+  io.stdout(`status: ${note_summary.status}`);
+  io.stdout(`updated_at: ${note_summary.updated_at}`);
+  io.stdout(`conclusions: ${JSON.stringify(note_summary.conclusions)}`);
+  io.stdout(`source_refs: ${JSON.stringify(note_summary.source_refs)}`);
+  io.stdout(`related_note_ids: ${note_summary.related_note_ids.join(',')}`);
+  io.stdout(`quality_checks: ${JSON.stringify(note_summary.quality_checks)}`);
 }
 
 function print_source_summary(

@@ -69,4 +69,85 @@ describe('Source domain', () => {
       'failed source must have last_error',
     );
   });
+
+  it('allows discussing to approved_for_note transition', () => {
+    const source = create_test_source({
+      status: 'discussing',
+      processing_artifacts: {
+        clean_text: 'processed/clean_text.md',
+        segments: 'processed/segments.json',
+        metadata: 'processed/metadata.json',
+      },
+      draft_understanding: {
+        summary: 'Summary',
+        key_points: ['Point'],
+        uncertainties: [],
+        discussion_starters: [],
+        generated_at: '2026-05-14T00:00:00.000Z',
+      },
+      discussion_summary: {
+        ...create_test_source().discussion_summary,
+        ready_for_approval: true,
+        confirmed_points: ['Confirmed'],
+      },
+    });
+
+    expect(transition_source(source, 'approved_for_note').status).toBe(
+      'approved_for_note',
+    );
+  });
+
+  it('rejects approved_for_note without ready discussion', () => {
+    const source = create_test_source({
+      status: 'approved_for_note',
+      processing_artifacts: {
+        clean_text: 'processed/clean_text.md',
+        segments: 'processed/segments.json',
+        metadata: 'processed/metadata.json',
+      },
+      draft_understanding: {
+        summary: 'Summary',
+        key_points: ['Point'],
+        uncertainties: [],
+        discussion_starters: [],
+        generated_at: '2026-05-14T00:00:00.000Z',
+      },
+      discussion_summary: {
+        ...create_test_source().discussion_summary,
+        ready_for_approval: false,
+        confirmed_points: ['Confirmed'],
+      },
+    });
+
+    expect(() => validate_source_invariants(source)).toThrow(
+      'approved_for_note source must have ready discussion',
+    );
+  });
+
+  it('rejects approved_for_note without confirmed points', () => {
+    const source = create_test_source({
+      status: 'approved_for_note',
+      processing_artifacts: {
+        clean_text: 'processed/clean_text.md',
+        segments: 'processed/segments.json',
+        metadata: 'processed/metadata.json',
+      },
+      draft_understanding: {
+        summary: 'Summary',
+        key_points: ['Point'],
+        uncertainties: [],
+        discussion_starters: [],
+        generated_at: '2026-05-14T00:00:00.000Z',
+      },
+      discussion_summary: {
+        ...create_test_source().discussion_summary,
+        ready_for_approval: true,
+        confirmed_points: [],
+      },
+    });
+
+    expect(() => validate_source_invariants(source)).toThrow(
+      'ready discussion must have confirmed_points',
+    );
+  });
 });

@@ -19,6 +19,44 @@ export function sources_root(context: StoragePathContext = {}): string {
   return path.join(knowledge_dir(context), 'sources');
 }
 
+export function notes_root(context: StoragePathContext = {}): string {
+  return path.join(knowledge_dir(context), 'notes');
+}
+
+export function index_root(context: StoragePathContext = {}): string {
+  return path.join(knowledge_dir(context), 'index');
+}
+
+export function index_entry_path(
+  note_id: string,
+  context: StoragePathContext = {},
+): string {
+  const { year, month } = note_year_month(note_id);
+  return path.join(index_root(context), year, month, `${note_id}.index.json`);
+}
+
+export function note_dir(
+  note_id: string,
+  context: StoragePathContext = {},
+): string {
+  const { year, month } = note_year_month(note_id);
+  return path.join(notes_root(context), year, month, note_id);
+}
+
+export function note_json_path(
+  note_id: string,
+  context: StoragePathContext = {},
+): string {
+  return path.join(note_dir(note_id, context), 'note.json');
+}
+
+export function note_markdown_path(
+  note_id: string,
+  context: StoragePathContext = {},
+): string {
+  return path.join(note_dir(note_id, context), 'note.md');
+}
+
 export function source_dir(
   source_id: string,
   context: StoragePathContext = {},
@@ -53,6 +91,24 @@ export function source_processed_dir(
   context: StoragePathContext = {},
 ): string {
   return path.join(source_dir(source_id, context), 'processed');
+}
+
+export function note_year_month(note_id: string): {
+  year: string;
+  month: string;
+} {
+  const match = /^note_(\d{4})(\d{2})\d{2}_/.exec(note_id);
+  if (match === null) {
+    throw new StorageError({
+      code: 'INVALID_PATH',
+      message: `Invalid note id: ${note_id}`,
+    });
+  }
+
+  return {
+    year: match[1],
+    month: match[2],
+  };
 }
 
 export function source_year_month(source_id: string): {
