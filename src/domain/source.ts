@@ -17,6 +17,7 @@ export type SourceStatus = z.infer<typeof SourceStatusSchema>;
 export const SourceIngestTypeSchema = z.enum([
   'upload_markdown',
   'upload_pdf',
+  'input_url',
   'lark_doc',
   'candidate_selected',
 ]);
@@ -26,7 +27,7 @@ export const SourceContentTypeSchema = z.enum(['document', 'link']);
 export const SourceOriginSchema = z.object({
   type: z.enum(['candidate', 'user_import']),
   candidate_id: z.string().nullable(),
-  user_input_type: z.enum(['markdown', 'pdf', 'lark_doc']).nullable(),
+  user_input_type: z.enum(['markdown', 'pdf', 'url', 'lark_doc']).nullable(),
 });
 
 export const DraftUnderstandingSchema = z.object({
@@ -108,10 +109,77 @@ export function validate_source_invariants(source: Source): void {
   }
 
   if (
+    source.origin.type === 'user_import' &&
+    source.origin.candidate_id !== null
+  ) {
+    throw new Error('user_import source origin.candidate_id must be null');
+  }
+
+  if (
     source.origin.type === 'candidate' &&
     source.origin_candidate_id === null
   ) {
     throw new Error('candidate source must have origin_candidate_id');
+  }
+
+  if (
+    source.origin.type === 'candidate' &&
+    source.origin.candidate_id === null
+  ) {
+    throw new Error('candidate source must have origin.candidate_id');
+  }
+
+  if (source.ingest_type === 'upload_markdown') {
+    if (source.origin.type !== 'user_import') {
+      throw new Error('upload_markdown source must be user_import');
+    }
+    if (source.origin.user_input_type !== 'markdown') {
+      throw new Error(
+        'upload_markdown source must have origin.user_input_type = markdown',
+      );
+    }
+    if (source.content_type !== 'document') {
+      throw new Error(
+        'upload_markdown source must have content_type = document',
+      );
+    }
+    if (source.url !== null) {
+      throw new Error('upload_markdown source must have url = null');
+    }
+  }
+
+  if (source.ingest_type === 'upload_pdf') {
+    if (source.origin.type !== 'user_import') {
+      throw new Error('upload_pdf source must be user_import');
+    }
+    if (source.origin.user_input_type !== 'pdf') {
+      throw new Error(
+        'upload_pdf source must have origin.user_input_type = pdf',
+      );
+    }
+    if (source.content_type !== 'document') {
+      throw new Error('upload_pdf source must have content_type = document');
+    }
+    if (source.url !== null) {
+      throw new Error('upload_pdf source must have url = null');
+    }
+  }
+
+  if (source.ingest_type === 'input_url') {
+    if (source.origin.type !== 'user_import') {
+      throw new Error('input_url source must be user_import');
+    }
+    if (source.origin.user_input_type !== 'url') {
+      throw new Error(
+        'input_url source must have origin.user_input_type = url',
+      );
+    }
+    if (source.content_type !== 'link') {
+      throw new Error('input_url source must have content_type = link');
+    }
+    if (source.url === null) {
+      throw new Error('input_url source must have a non-null url');
+    }
   }
 
   if (statuses_after_processing.has(source.status)) {
@@ -141,12 +209,28 @@ export function validate_source_invariants(source: Source): void {
     throw new Error('ready discussion must have confirmed_points');
   }
 
-  if (
-    source.status === 'approved_for_note' &&
-    (!source.discussion_summary.ready_for_approval ||
-      source.discussion_summary.confirmed_points.length === 0)
-  ) {
-    throw new Error('approved_for_note source must have ready discussion');
+  if (source.status === 'approved_for_note') {
+    if (source.discussion_summary.confirmed_points.length === 0) {
+      throw new Error('approved_for_note source must have confirmed_points');
+    }
+
+    if (source.discussion_summary.discussion_status !== 'closed') {
+      throw new Error('approved_for_note source must have closed discussion');
+    }
+
+    if (
+      !source.discussion_summary.ready_for_approval &&
+      (source.discussion_summary.open_questions.length > 0 ||
+        source.discussion_summary.unresolved_issues.length > 0)
+    ) {
+      throw new Error(
+        'approved_for_note source cannot override model readiness while blockers remain',
+      );
+    }
+
+    if (source.last_error !== undefined) {
+      throw new Error('approved_for_note source must not have last_error');
+    }
   }
 
   if (source.status === 'noted' && source.note_ids.length === 0) {

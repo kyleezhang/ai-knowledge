@@ -22,6 +22,8 @@ import { discuss_source_workflow } from '../workflows/discuss-source-workflow.js
 import { index_note_workflow } from '../workflows/index-note-workflow.js';
 import { init_workflow } from '../workflows/init-workflow.js';
 import { ingest_markdown_workflow } from '../workflows/ingest-markdown-workflow.js';
+import { ingest_pdf_workflow } from '../workflows/ingest-pdf-workflow.js';
+import { ingest_url_workflow } from '../workflows/ingest-url-workflow.js';
 import { lint_note_workflow } from '../workflows/lint-note-workflow.js';
 import { list_notes_workflow } from '../workflows/list-notes-workflow.js';
 import { list_sources_workflow } from '../workflows/list-sources-workflow.js';
@@ -63,6 +65,7 @@ export function create_program(
       agent_input: AnswerAgentInput;
     }) => Promise<GroundedAnswer>;
     repl_input?: AsyncIterable<string>;
+    fetch_html?: (url: string) => Promise<string>;
   } = {},
 ): Command {
   const io = input.io ?? default_io;
@@ -146,11 +149,62 @@ export function create_program(
       print_next_actions(result.next_actions, io);
     });
 
+  source_ingest
+    .command('pdf')
+    .argument('<file>')
+    .option('--json', 'Output JSON')
+    .description('Ingest a PDF file as a Source.')
+    .action(async (file: string, options: { json?: boolean }) => {
+      const result = await ingest_pdf_workflow({
+        file_path: file,
+        cwd: input.cwd,
+      });
+
+      if (options.json) {
+        print_json_result(result, io);
+        return;
+      }
+
+      if (!handle_result(result, io)) {
+        return;
+      }
+
+      io.stdout('Source ingested.');
+      print_source_summary(result.data.source, io);
+      print_next_actions(result.next_actions, io);
+    });
+
+  source_ingest
+    .command('url')
+    .argument('<public_url>')
+    .option('--json', 'Output JSON')
+    .description('Ingest an explicit public URL as a Source.')
+    .action(async (public_url: string, options: { json?: boolean }) => {
+      const result = await ingest_url_workflow({
+        url: public_url,
+        cwd: input.cwd,
+        fetch_html: input.fetch_html,
+      });
+
+      if (options.json) {
+        print_json_result(result, io);
+        return;
+      }
+
+      if (!handle_result(result, io)) {
+        return;
+      }
+
+      io.stdout('Source ingested.');
+      print_source_summary(result.data.source, io);
+      print_next_actions(result.next_actions, io);
+    });
+
   source
     .command('process')
     .argument('<source_id>')
     .option('--json', 'Output JSON')
-    .description('Process a Markdown Source into artifacts.')
+    .description('Process an ingested Source into artifacts.')
     .action(async (source_id: string, options: { json?: boolean }) => {
       const result = await process_source_workflow({
         source_id,
@@ -550,12 +604,32 @@ async function handle_discuss_command(
   }
   if (command === '/approve') {
     const summary = raw_source.discussion_summary;
-    if (!summary.ready_for_approval || summary.confirmed_points.length === 0) {
-      input.io.stdout('Discussion is not ready for approval.');
+    if (summary.confirmed_points.length === 0) {
+      input.io.stdout(
+        'Discussion is missing confirmed_points and cannot be approved yet.',
+      );
       return true;
     }
+
+    const has_blocking_questions =
+      summary.open_questions.length > 0 || summary.unresolved_issues.length > 0;
+
+    if (summary.ready_for_approval) {
+      input.io.stdout(
+        `Ready for approval. Next: ai-knowledge source approve ${input.source_id}`,
+      );
+      return true;
+    }
+
+    if (has_blocking_questions) {
+      input.io.stdout(
+        'Discussion still has open questions or unresolved issues before approval.',
+      );
+      return true;
+    }
+
     input.io.stdout(
-      `Ready for approval. Next: ai-knowledge source approve ${input.source_id}`,
+      `Model readiness is still false, but you can explicitly confirm now. Next: ai-knowledge source approve ${input.source_id}`,
     );
     return true;
   }

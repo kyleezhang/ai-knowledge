@@ -1,8 +1,8 @@
-# AI 学习助手 P0 Issue Breakdown
+# AI 学习助手 Issue Breakdown
 
 ## 1. 文档目标
 
-本文档基于 `specs/implementation.md`，将 P0 Markdown 主动学习闭环拆分为可执行 issue 草案。
+本文档基于 `specs/implementation.md`，记录 P0 Markdown 主动学习闭环的 issue 拆分，并补充当前已确认的 P1 设计草案。
 
 P0 范围：
 
@@ -15,7 +15,30 @@ Markdown -> Source -> Processed Artifacts -> Draft Understanding
 P0 不包含：
 
 - PDF 支持
+- 用户显式提供的 URL 导入
 - GitHub Trending / Hacker News 自动采集
+- Candidate 工作流
+- 向量检索
+- Web UI
+
+当前确认的 P1 范围：
+
+```text
+PDF file / Public URL -> Source -> Processed Artifacts -> Draft Understanding
+-> Discussion Summary -> Approval -> Note JSON -> Note Markdown
+-> QA -> Approved Note -> Index Entry -> Answer
+```
+
+P1 聚焦“扩展 Source 输入类型，但不改变下游知识主链路”。P1 只支持：
+
+- 用户主动导入本地 PDF
+- 用户显式提交公开网页 / 博客 URL
+
+P1 不包含：
+
+- 自动爬站 / 批量抓取 / 搜索发现
+- 登录态、付费墙或需要 session 的网页
+- JS 渲染兜底与浏览器自动化抓取
 - Candidate 工作流
 - 向量检索
 - Web UI
@@ -407,7 +430,181 @@ Markdown -> Source -> Processed Artifacts -> Draft Understanding
 - Issue 10
 - Issue 11
 
+---
+
+### Issue 13: 扩展 Source 输入契约到 P1（PDF / URL）
+
+- **Type**: AFK
+- **Blocked by**: Issue 2
+- **User stories covered**:
+  - 用户可以把本地 PDF 作为学习资料导入
+  - 用户可以显式提交公开博客 / 网页 URL 作为学习资料导入
+  - 系统对不同输入类型统一落入 Source 工作流，而不改变后续主链路
+
+#### What to build
+
+扩展 `Source` schema、ingest CLI 与原始落盘约定，为 P1 新增 `ai-knowledge source ingest pdf <file>` 与 `ai-knowledge source ingest url <url>`。PDF ingest 保存 `raw/original.pdf`；URL ingest 在显式抓取成功后保存 `raw/original.url` 与 `raw/fetched.html`，并登记来源元信息。该 issue 只定义输入契约与存储约定，不改变下游 `process -> understand -> discuss -> approve -> note -> index -> answer` 语义。
+
+#### Acceptance criteria
+
+- [ ] `origin.user_input_type` 支持 `markdown | pdf | url`
+- [ ] `ingest_type` 支持 `upload_markdown | upload_pdf | submit_url`
+- [ ] `content_type` 支持 `document | webpage`
+- [ ] `source ingest pdf <file>` 成功时创建 `ingested` Source 并保存 `raw/original.pdf`
+- [ ] `source ingest url <url>` 只接受显式提供的 `http | https` URL
+- [ ] URL ingest 成功时保存 `raw/original.url`
+- [ ] URL ingest 成功时保存 `raw/fetched.html`
+- [ ] URL ingest 在 `source.json` 记录原始 URL、最终 URL（如有 redirect）与抓取时间
+- [ ] `source list/show` 能正确展示 PDF / URL Source 的基本信息
+- [ ] 支持 `--json`
+- [ ] 不支持自动爬站、批量 URL 导入、搜索发现或登录态抓取
+
+#### Blocked by
+
+- Issue 2
+
+---
+
+### Issue 14: 处理 PDF Source 生成 processed artifacts
+
+- **Type**: AFK
+- **Blocked by**: Issue 3, Issue 13
+- **User stories covered**:
+  - 用户可以把 PDF 学习资料转成统一可理解文本证据
+  - 后续理解、讨论、Note 与问答链路可以复用既有 P0 能力
+
+#### What to build
+
+扩展 `ai-knowledge source process <source_id>` 以支持 PDF Source：读取 `raw/original.pdf`，提取文本并生成 processed 三件套。PDF 的 processed 输出仍与 Markdown 对齐，但在 `segments` 和 `metadata` 中补充页码与抽取信息，供后续 evidence locator 使用。
+
+#### Acceptance criteria
+
+- [ ] 前置状态必须为 `ingested`
+- [ ] `source process` 可识别 PDF Source 并读取 `raw/original.pdf`
+- [ ] 生成 `processed/clean_text.md`
+- [ ] 生成 `processed/segments.json`
+- [ ] 生成 `processed/metadata.json`
+- [ ] PDF `segments` 提供页码或等价 locator，供后续 `source_refs.evidence_refs` 使用
+- [ ] PDF `metadata` 记录页数、抽取方式与抽取失败信息
+- [ ] 处理成功后仍输出 next action：`ai-knowledge source understand <source_id>`
+- [ ] processing 失败时 Source 进入 `failed` 并写 `last_error.stage = processing`
+- [ ] `understand`、`discuss`、`approve`、`note compose` 无需增加 PDF 专用命令
+- [ ] 支持 `--json`
+- [ ] P1 不要求 OCR 扫描件支持
+
+#### Blocked by
+
+- Issue 3
+- Issue 13
+
+---
+
+### Issue 15: 抓取 URL Source 并处理网页正文
+
+- **Type**: AFK
+- **Blocked by**: Issue 3, Issue 13
+- **User stories covered**:
+  - 用户可以把博客 / 网页链接作为学习资料导入
+  - 系统先读取网页内容，再进入现有知识处理流程
+  - 系统显式区分公开网页输入与后续自动采集能力
+
+#### What to build
+
+实现 `ai-knowledge source ingest url <url>` 的公开网页抓取，并扩展 `source process <source_id>` 以支持 HTML 正文提取。ingest 阶段负责抓取并保存快照；process 阶段负责正文抽取、标题 / 作者 / 发布时间归一化与 section 分段。
+
+#### Acceptance criteria
+
+- [ ] `source ingest url <url>` 只支持 `http | https`
+- [ ] ingest 阶段完成网页读取，并保存 `raw/fetched.html`
+- [ ] ingest 阶段保存 `raw/original.url`
+- [ ] fetch 成功后 Source 状态为 `ingested`
+- [ ] fetch 失败时返回结构化错误，不生成成功的 `ingested` Source
+- [ ] `source process` 可从 `raw/fetched.html` 提取 `processed/clean_text.md`
+- [ ] `source process` 生成 `processed/segments.json` 与 `processed/metadata.json`
+- [ ] `metadata` 尽可能归一化 `title`、`author`、`published_at`，缺失时允许 `null`
+- [ ] 支持 redirect 后最终 URL 记录
+- [ ] 支持不支持的 `content-type` / 抓取失败的明确错误反馈
+- [ ] 支持 `--json`
+- [ ] 不支持登录态、付费墙、站点级抓取、搜索发现或 JS 渲染兜底
+
+#### Blocked by
+
+- Issue 3
+- Issue 13
+
+---
+
+### Issue 16: 统一跨来源 evidence locator
+
+- **Type**: AFK
+- **Blocked by**: Issue 8, Issue 14, Issue 15
+- **User stories covered**:
+  - Note 可以稳定引用 Markdown / PDF / URL 的证据片段
+  - 不同输入类型不会破坏 approved knowledge 的可追溯性
+
+#### What to build
+
+统一 processed segment 与 `source_refs.evidence_refs` 的定位约定，使 Markdown、PDF、URL 都通过 processed artifacts 暴露稳定证据引用，而不是直接引用 raw 文件。必要时扩展 segment locator 字段，但保持 `Note` 主真相与 `source_refs` 语义一致。
+
+#### Acceptance criteria
+
+- [ ] Markdown / PDF / URL 都产出统一的 `processed/segments.json` 基础结构
+- [ ] Markdown 现有 evidence refs 保持有效
+- [ ] PDF segment locator 能定位到页码或等价页内位置
+- [ ] URL segment locator 能定位到 heading_path、section 或等价正文位置
+- [ ] `Note.source_refs.evidence_refs` 继续只引用 processed artifacts，不直接引用 raw html / raw pdf
+- [ ] `note render`、`note show` 与后续 QA 规则在多来源输入下仍成立
+- [ ] `answer` 语义不变，仍然只基于 approved Notes 作答
+
+#### Blocked by
+
+- Issue 8
+- Issue 14
+- Issue 15
+
+---
+
+### Issue 17: P1 端到端验收用例（PDF / URL）
+
+- **Type**: HITL
+- **Blocked by**: Issue 13-16
+- **User stories covered**:
+  - 用户可以完成 PDF 与公开 URL 的完整学习闭环
+  - 产品可以验证 P1 输入扩展不会破坏既有 P0 知识主链路
+
+#### What to build
+
+准备 P1 端到端验收 fixture 与验收脚本 / 文档，分别跑通 PDF happy path 与 URL happy path：
+
+```text
+PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
+-> Discussion Summary -> Approval -> Note JSON -> Note Markdown
+-> QA -> Approved Note -> Index Entry -> Answer
+```
+
+#### Acceptance criteria
+
+- [ ] 有一份可稳定抽取文本的 PDF fixture
+- [ ] 有一个可稳定抓取的 URL fixture（本地 test server 或 mocked public page）
+- [ ] PDF happy path 可以从空 `knowledge/` 跑到 approved Note 与 answer
+- [ ] URL happy path 可以从空 `knowledge/` 跑到 approved Note 与 answer
+- [ ] 验收中确认：URL fetch 失败会明确报错
+- [ ] 验收中确认：不支持的网页 content-type 会明确报错
+- [ ] 验收中确认：PDF 抽取失败会明确报错
+- [ ] 验收中确认：没有讨论确认不能生成 Note
+- [ ] 验收中确认：没有 QA passed 不能 approve Note
+- [ ] 人工确认 CLI 交互体验与来源追溯信息可接受
+
+#### Blocked by
+
+- Issue 13
+- Issue 14
+- Issue 15
+- Issue 16
+
 ## 3. Dependency Map
+
+### P0
 
 ```text
 1
@@ -428,10 +625,21 @@ Markdown -> Source -> Processed Artifacts -> Draft Understanding
 └─ 12 depends on 1-11
 ```
 
+### P1
+
+```text
+13 depends on 2
+14 depends on 3, 13
+15 depends on 3, 13
+16 depends on 8, 14, 15
+17 depends on 13, 14, 15, 16
+```
+
 ## 4. Notes
 
-- 当前 issue 拆分只覆盖 P0。
+- 当前 issue 拆分覆盖已完成的 P0 与当前确认的 P1 输入扩展范围。
+- P1 聚焦 PDF 主动导入与用户显式提供的公开 URL 导入，不改变下游知识主链路。
+- URL 导入不包含自动爬站、批量抓取、搜索发现、登录态页面或 JS 渲染兜底。
 - P2 自动采集相关命令和 Candidate workflow 暂不拆分。
-- PDF 支持暂不拆分。
-- 向量检索暂不拆分。
-- HITL issue 只有交互式讨论 REPL 与 P0 端到端验收。
+- 向量检索暂不拆分，仍放在后续阶段。
+- HITL issue 目前包括交互式讨论 REPL、P0 端到端验收与 P1 端到端验收。

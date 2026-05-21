@@ -3,6 +3,11 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Source } from '../src/domain/source.js';
 
+const default_pdf_fixture = Buffer.from(
+  '%PDF-1.4\n% fake pdf fixture\n',
+  'utf8',
+);
+
 export async function create_temp_dir(): Promise<string> {
   return mkdtemp(path.join(os.tmpdir(), 'ai-knowledge-'));
 }
@@ -14,6 +19,16 @@ export async function write_markdown_fixture(
 ): Promise<string> {
   const file_path = path.join(cwd, name);
   await writeFile(file_path, content, 'utf8');
+  return file_path;
+}
+
+export async function write_pdf_fixture(
+  cwd: string,
+  name = 'input.pdf',
+  content = default_pdf_fixture,
+): Promise<string> {
+  const file_path = path.join(cwd, name);
+  await writeFile(file_path, content);
   return file_path;
 }
 

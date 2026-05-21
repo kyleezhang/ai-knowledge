@@ -35,9 +35,19 @@ export async function approve_source_workflow(
         'Discussion must have confirmed_points before approval.',
       );
     }
-    if (!source.discussion_summary.ready_for_approval) {
-      return invalid_state('Discussion is not ready for approval.');
+    const summary = source.discussion_summary;
+    const has_blocking_questions =
+      summary.open_questions.length > 0 || summary.unresolved_issues.length > 0;
+
+    if (!summary.ready_for_approval && has_blocking_questions) {
+      return invalid_state(
+        'Discussion still has open questions or unresolved issues before approval.',
+      );
     }
+
+    const approval_note = summary.ready_for_approval
+      ? undefined
+      : 'Approved through explicit user confirmation before model readiness.';
 
     const timestamp = (input.now ?? new Date()).toISOString();
     const updated_source = parse_source({
@@ -45,8 +55,12 @@ export async function approve_source_workflow(
         {
           ...source,
           discussion_summary: {
-            ...source.discussion_summary,
+            ...summary,
             discussion_status: 'closed',
+            next_prompts:
+              approval_note === undefined
+                ? summary.next_prompts
+                : [approval_note, ...summary.next_prompts],
             last_updated_at: timestamp,
           },
           updated_at: timestamp,
@@ -54,8 +68,12 @@ export async function approve_source_workflow(
         'approved_for_note',
       ),
       discussion_summary: {
-        ...source.discussion_summary,
+        ...summary,
         discussion_status: 'closed',
+        next_prompts:
+          approval_note === undefined
+            ? summary.next_prompts
+            : [approval_note, ...summary.next_prompts],
         last_updated_at: timestamp,
       },
       updated_at: timestamp,

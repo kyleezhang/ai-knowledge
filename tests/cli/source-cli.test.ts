@@ -16,7 +16,115 @@ import type { UnderstandAgentInput } from '../../src/agents/understand-agent.js'
 import {
   create_temp_dir,
   write_markdown_fixture,
+  write_pdf_fixture,
 } from '../source-test-helpers.js';
+
+const example_article_html =
+  '<html><head><title>Example Article</title></head><body><article><h1>Example Article</h1><p>Read <a href="/docs">docs</a>.</p></article></body></html>';
+
+async function fetch_html_fixture(): Promise<string> {
+  return example_article_html;
+}
+
+async function reject_fetch_fixture(): Promise<string> {
+  throw new Error('auth required');
+}
+
+function source_id_from_output(output: string): string {
+  const json = JSON.parse(output) as { ok: true; data: { source_id: string } };
+  return json.data.source_id;
+}
+
+async function process_pdf_source(
+  cwd: string,
+  source_id: string,
+): Promise<void> {
+  const { process_source_workflow } =
+    await import('../../src/workflows/process-source-workflow.js');
+
+  await process_source_workflow({
+    cwd,
+    source_id,
+    process_pdf: async () => ({
+      clean_text: '## Page 1\n\nPDF body.\n',
+      segments: [
+        {
+          id: 'seg_0001',
+          order: 1,
+          heading_path: ['Page 1'],
+          text: 'PDF body.',
+        },
+      ],
+      metadata: {
+        title: 'PDF Title',
+        headings: [{ level: 2, title: 'Page 1' }],
+        links: [],
+        segment_count: 1,
+        processed_at: '2026-05-14T01:00:00.000Z',
+        page_count: 1,
+      },
+    }),
+  });
+}
+
+async function process_url_source(
+  cwd: string,
+  source_id: string,
+): Promise<void> {
+  const { process_source_workflow } =
+    await import('../../src/workflows/process-source-workflow.js');
+
+  await process_source_workflow({
+    cwd,
+    source_id,
+    process_url: () => ({
+      clean_text:
+        '# Example Article\n\nRead [docs](https://example.com/docs).\n',
+      segments: [
+        {
+          id: 'seg_0001',
+          order: 1,
+          heading_path: ['Example Article'],
+          text: 'Read [docs](https://example.com/docs).',
+        },
+      ],
+      metadata: {
+        title: 'Example Article',
+        headings: [{ level: 1, title: 'Example Article' }],
+        links: [{ text: 'docs', url: 'https://example.com/docs' }],
+        segment_count: 1,
+        processed_at: '2026-05-14T01:10:00.000Z',
+        source_url: 'https://example.com/article',
+      },
+    }),
+  });
+}
+
+async function understand_with_capture(
+  cwd: string,
+  source_id: string,
+  captured: Array<{ source_metadata: unknown; segments: unknown }>,
+): Promise<void> {
+  const { understand_source_workflow } =
+    await import('../../src/workflows/understand-source-workflow.js');
+
+  await understand_source_workflow({
+    cwd,
+    source_id,
+    understand: async ({ agent_input }) => {
+      captured.push({
+        source_metadata: agent_input.source_metadata,
+        segments: agent_input.segments,
+      });
+      return {
+        summary: 'Summary',
+        key_points: ['Point'],
+        uncertainties: ['Unclear'],
+        discussion_starters: ['Question?'],
+      };
+    },
+  });
+}
 
 describe('source CLI', () => {
   it('ingests Markdown with human-readable output', async () => {
@@ -35,6 +143,53 @@ describe('source CLI', () => {
     expect(harness.stdout.join('\n')).toContain('status: ingested');
     expect(harness.stdout.join('\n')).toContain('ai-knowledge source process');
     expect(harness.stdout.join('\n')).not.toContain('Body.');
+  });
+
+  it('ingests PDF with human-readable output', async () => {
+    const cwd = await create_temp_dir();
+    const file_path = await write_pdf_fixture(cwd, 'paper.pdf');
+    const harness = create_cli_harness(cwd);
+
+    await harness.run(['source', 'ingest', 'pdf', file_path]);
+
+    expect(harness.stdout.join('\n')).toContain('Source ingested.');
+    expect(harness.stdout.join('\n')).toContain('ingest_type: upload_pdf');
+    expect(harness.stdout.join('\n')).toContain('content_type: document');
+    expect(harness.stdout.join('\n')).toContain('ai-knowledge source process');
+  });
+
+  it('ingests URL with human-readable output', async () => {
+    const cwd = await create_temp_dir();
+    const harness = create_cli_harness(cwd, { fetch_html: fetch_html_fixture });
+
+    await harness.run([
+      'source',
+      'ingest',
+      'url',
+      'https://example.com/article',
+    ]);
+
+    expect(harness.stdout.join('\n')).toContain('Source ingested.');
+    expect(harness.stdout.join('\n')).toContain('ingest_type: input_url');
+    expect(harness.stdout.join('\n')).toContain('content_type: link');
+    expect(harness.stdout.join('\n')).toContain('ai-knowledge source process');
+  });
+
+  it('rejects URL ingest when the page cannot be fetched', async () => {
+    const cwd = await create_temp_dir();
+    const harness = create_cli_harness(cwd, {
+      fetch_html: reject_fetch_fixture,
+    });
+
+    await harness.run([
+      'source',
+      'ingest',
+      'url',
+      'https://example.com/private',
+    ]);
+
+    expect(harness.exit_code).toBe(1);
+    expect(harness.stderr.join('\n')).toContain('code: INVALID_INPUT');
   });
 
   it('processes Markdown with human-readable output', async () => {
@@ -231,22 +386,40 @@ describe('source CLI', () => {
     expect(harness.stdout.join('\n')).toContain('Reply: This matters.');
   });
 
-  it('checks approve readiness in REPL', async () => {
+  it('checks approve readiness in REPL with clearer messages', async () => {
     const cwd = await create_temp_dir();
     const source_id = await ingest_process_understand(
       cwd,
       '# Approve Check\n\nBody.\n',
     );
-    const not_ready = create_cli_harness(cwd, {
+    const missing_points = create_cli_harness(cwd, {
       repl_input: async_iter(['/approve', '/exit']),
     });
-    await not_ready.run(['source', 'discuss', source_id]);
-    expect(not_ready.stdout.join('\n')).toContain(
-      'Discussion is not ready for approval.',
+    await missing_points.run(['source', 'discuss', source_id]);
+    expect(missing_points.stdout.join('\n')).toContain(
+      'Discussion is missing confirmed_points and cannot be approved yet.',
+    );
+
+    const explicit_confirm = create_cli_harness(cwd, {
+      repl_input: async_iter(['Confirm this.', '/approve', '/exit']),
+      discuss: async () => ({
+        assistant_message: 'We have enough confirmed points.',
+        discussion_summary_update: {
+          confirmed_points: ['Confirmed'],
+          open_questions: [],
+          unresolved_issues: [],
+          next_prompts: [],
+          ready_for_approval: false,
+        },
+      }),
+    });
+    await explicit_confirm.run(['source', 'discuss', source_id]);
+    expect(explicit_confirm.stdout.join('\n')).toContain(
+      `Model readiness is still false, but you can explicitly confirm now. Next: ai-knowledge source approve ${source_id}`,
     );
 
     const ready = create_cli_harness(cwd, {
-      repl_input: async_iter(['Confirm this.', '/approve', '/exit']),
+      repl_input: async_iter(['Confirm again.', '/approve', '/exit']),
       discuss: async () => ({
         assistant_message: 'Ready now.',
         discussion_summary_update: {
@@ -262,6 +435,38 @@ describe('source CLI', () => {
     expect(ready.stdout.join('\n')).toContain(
       `Ready for approval. Next: ai-knowledge source approve ${source_id}`,
     );
+  });
+
+  it('understands PDF and URL sources from normalized artifacts only', async () => {
+    const cwd = await create_temp_dir();
+    const pdf_harness = create_cli_harness(cwd);
+    const pdf_file_path = await write_pdf_fixture(cwd, 'paper.pdf');
+    await pdf_harness.run(['source', 'ingest', 'pdf', pdf_file_path, '--json']);
+    const pdf_source_id = source_id_from_output(pdf_harness.stdout[0]);
+    await process_pdf_source(cwd, pdf_source_id);
+
+    const url_harness = create_cli_harness(cwd, {
+      fetch_html: fetch_html_fixture,
+    });
+    await url_harness.run([
+      'source',
+      'ingest',
+      'url',
+      'https://example.com/article',
+      '--json',
+    ]);
+    const url_source_id = source_id_from_output(url_harness.stdout[0]);
+    await process_url_source(cwd, url_source_id);
+
+    const captured: Array<{ source_metadata: unknown; segments: unknown }> = [];
+    await understand_with_capture(cwd, pdf_source_id, captured);
+    await understand_with_capture(cwd, url_source_id, captured);
+
+    expect(captured).toHaveLength(2);
+    expect(captured[0].source_metadata).toMatchObject({ page_count: 1 });
+    expect(captured[1].source_metadata).toMatchObject({
+      source_url: 'https://example.com/article',
+    });
   });
 
   it('supports JSON output for source process', async () => {
@@ -906,6 +1111,7 @@ function create_cli_harness(
       agent_input: AnswerAgentInput;
     }) => Promise<GroundedAnswer>;
     repl_input?: AsyncIterable<string>;
+    fetch_html?: (url: string) => Promise<string>;
   } = {},
 ): {
   stdout: string[];
@@ -939,6 +1145,7 @@ function create_cli_harness(
         compose_note: options.compose_note,
         answer: options.answer,
         repl_input: options.repl_input,
+        fetch_html: options.fetch_html,
       }).parseAsync(['node', 'ai-knowledge', ...args]);
     },
   };

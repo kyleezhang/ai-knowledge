@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { AgentError } from '../../src/agents/errors.js';
 import { default_agent_config } from '../../src/agents/config.js';
 import {
+  __test_only__,
   AnthropicLlmClient,
   create_llm_client,
   type AnthropicMessagesApi,
@@ -78,7 +79,41 @@ describe('LLM client', () => {
     } satisfies Partial<AgentError>);
   });
 
-  it('wraps invalid JSON output as AgentError', async () => {
+  it('recovers JSON from a fenced json block', async () => {
+    const client = new AnthropicLlmClient({
+      default_model: default_chat_model,
+      messages: fake_messages_api({
+        text: 'Here is the result:\n```json\n{"answer":"ok"}\n```',
+      }),
+    });
+
+    await expect(
+      client.generate_json({
+        system_prompt: 'system',
+        user_prompt: 'user',
+        schema: z.object({ answer: z.string() }),
+      }),
+    ).resolves.toEqual({ answer: 'ok' });
+  });
+
+  it('recovers JSON from a single top-level object embedded in text', async () => {
+    const client = new AnthropicLlmClient({
+      default_model: default_chat_model,
+      messages: fake_messages_api({
+        text: 'Result follows. {"answer":"ok"} Thanks.',
+      }),
+    });
+
+    await expect(
+      client.generate_json({
+        system_prompt: 'system',
+        user_prompt: 'user',
+        schema: z.object({ answer: z.string() }),
+      }),
+    ).resolves.toEqual({ answer: 'ok' });
+  });
+
+  it('wraps invalid JSON output as AgentError when recovery fails', async () => {
     const client = new AnthropicLlmClient({
       default_model: default_chat_model,
       messages: fake_messages_api({ text: 'not json' }),
@@ -93,10 +128,10 @@ describe('LLM client', () => {
     ).rejects.toMatchObject({ code: 'LLM_OUTPUT_PARSE_FAILED' });
   });
 
-  it('wraps schema validation failure as AgentError', async () => {
+  it('wraps schema validation failure as AgentError after recovery', async () => {
     const client = new AnthropicLlmClient({
       default_model: default_chat_model,
-      messages: fake_messages_api({ text: '{"answer":1}' }),
+      messages: fake_messages_api({ text: '```json\n{"answer":1}\n```' }),
     });
 
     await expect(
@@ -106,6 +141,14 @@ describe('LLM client', () => {
         schema: z.object({ answer: z.string() }),
       }),
     ).rejects.toMatchObject({ code: 'LLM_OUTPUT_SCHEMA_FAILED' });
+  });
+
+  it('does not recover when multiple different JSON objects are present', () => {
+    expect(
+      __test_only__.extract_single_top_level_json_object(
+        'first {"a":1} second {"a":2}',
+      ),
+    ).toBeNull();
   });
 
   it('uses injected fake messages without real network calls', async () => {

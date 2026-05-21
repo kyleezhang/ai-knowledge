@@ -4,7 +4,13 @@ import { z } from 'zod';
 import type { Source } from '../domain/source.js';
 import type { StorageConfig } from './config.js';
 import { StorageError } from './errors.js';
-import { source_dir, source_processed_dir, source_raw_path } from './paths.js';
+import {
+  source_dir,
+  source_processed_dir,
+  source_raw_html_path,
+  source_raw_markdown_path,
+  source_raw_pdf_path,
+} from './paths.js';
 
 export type ArtifactStoreContext = {
   config?: Partial<StorageConfig>;
@@ -40,6 +46,8 @@ export const ProcessedMetadataSchema = z.object({
   ),
   segment_count: z.number().int().nonnegative(),
   processed_at: z.string(),
+  page_count: z.number().int().positive().optional(),
+  source_url: z.string().optional(),
 });
 
 export type ProcessedSegment = z.infer<typeof ProcessedSegmentSchema>;
@@ -56,12 +64,44 @@ export async function read_raw_original_markdown(
   context: ArtifactStoreContext = {},
 ): Promise<string> {
   try {
-    return await readFile(source_raw_path(source_id, context), 'utf8');
+    return await readFile(source_raw_markdown_path(source_id, context), 'utf8');
   } catch (error) {
     throw new StorageError({
       code: 'READ_FAILED',
       message: `Failed to read raw original Markdown for Source: ${source_id}`,
-      path: source_raw_path(source_id, context),
+      path: source_raw_markdown_path(source_id, context),
+      cause: error,
+    });
+  }
+}
+
+export async function read_raw_original_pdf(
+  source_id: string,
+  context: ArtifactStoreContext = {},
+): Promise<Uint8Array> {
+  try {
+    return await readFile(source_raw_pdf_path(source_id, context));
+  } catch (error) {
+    throw new StorageError({
+      code: 'READ_FAILED',
+      message: `Failed to read raw original PDF for Source: ${source_id}`,
+      path: source_raw_pdf_path(source_id, context),
+      cause: error,
+    });
+  }
+}
+
+export async function read_raw_fetched_html(
+  source_id: string,
+  context: ArtifactStoreContext = {},
+): Promise<string> {
+  try {
+    return await readFile(source_raw_html_path(source_id, context), 'utf8');
+  } catch (error) {
+    throw new StorageError({
+      code: 'READ_FAILED',
+      message: `Failed to read fetched HTML for Source: ${source_id}`,
+      path: source_raw_html_path(source_id, context),
       cause: error,
     });
   }

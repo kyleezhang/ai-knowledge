@@ -15,6 +15,8 @@ import {
   source_discussion_path,
   source_json_path,
   source_processed_dir,
+  source_raw_dir,
+  source_raw_file_name_for_ingest_type,
   source_raw_path,
   sources_root,
 } from './paths.js';
@@ -30,7 +32,9 @@ export type SourceRepoContext = {
 
 export type CreateSourceInput = {
   source: Source;
-  raw_file_path: string;
+  raw_file_name?: string;
+  raw_file_path?: string;
+  raw_content?: string | Uint8Array;
 };
 
 export async function create_source(
@@ -48,9 +52,21 @@ export async function create_source(
     });
   }
 
-  await mkdir(path.join(dir, 'raw'), { recursive: true });
+  const raw_file_name =
+    input.raw_file_name ??
+    source_raw_file_name_for_ingest_type(source.ingest_type);
+  validate_raw_input(input, raw_file_name);
+
+  await mkdir(source_raw_dir(source.id, context), { recursive: true });
   await mkdir(source_processed_dir(source.id, context), { recursive: true });
-  await cp(input.raw_file_path, source_raw_path(source.id, context));
+
+  const raw_target_path = source_raw_path(source.id, raw_file_name, context);
+  if (input.raw_file_path !== undefined) {
+    await cp(input.raw_file_path, raw_target_path);
+  } else {
+    await write_raw_content(raw_target_path, input.raw_content!);
+  }
+
   await writeFile(source_discussion_path(source.id, context), '', 'utf8');
   await write_json({
     file_path: source_json_path(source.id, context),
@@ -124,6 +140,45 @@ export async function list_sources(
         filter.status === undefined || source.status === filter.status,
     )
     .sort((left, right) => right.updated_at.localeCompare(left.updated_at));
+}
+
+function validate_raw_input(
+  input: CreateSourceInput,
+  raw_file_name: string,
+): void {
+  if (path.basename(raw_file_name) !== raw_file_name) {
+    throw new StorageError({
+      code: 'INVALID_PATH',
+      message: `Invalid raw file name: ${raw_file_name}`,
+    });
+  }
+
+  if (input.raw_file_path !== undefined && input.raw_content !== undefined) {
+    throw new StorageError({
+      code: 'WRITE_FAILED',
+      message:
+        'CreateSourceInput cannot provide both raw_file_path and raw_content.',
+    });
+  }
+
+  if (input.raw_file_path === undefined && input.raw_content === undefined) {
+    throw new StorageError({
+      code: 'WRITE_FAILED',
+      message: 'CreateSourceInput must provide raw_file_path or raw_content.',
+    });
+  }
+}
+
+async function write_raw_content(
+  raw_target_path: string,
+  raw_content: string | Uint8Array,
+): Promise<void> {
+  if (typeof raw_content === 'string') {
+    await writeFile(raw_target_path, raw_content, 'utf8');
+    return;
+  }
+
+  await writeFile(raw_target_path, raw_content);
 }
 
 async function exists(file_path: string): Promise<boolean> {

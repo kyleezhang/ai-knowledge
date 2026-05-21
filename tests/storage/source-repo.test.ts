@@ -11,6 +11,7 @@ import {
   create_temp_dir,
   create_test_source,
   write_markdown_fixture,
+  write_pdf_fixture,
 } from '../source-test-helpers.js';
 
 describe('source repo', () => {
@@ -45,6 +46,98 @@ describe('source repo', () => {
     await expect(
       readFile(path.join(source_dir, 'raw', 'original.md'), 'utf8'),
     ).resolves.toBe('# Original\n\nKeep this exact content.\n');
+  });
+
+  it('creates PDF Source layout and preserves raw PDF content', async () => {
+    const cwd = await create_temp_dir();
+    const raw_file_path = await write_pdf_fixture(cwd, 'source.pdf');
+    const source = create_test_source({
+      id: 'src_20260514_upload_pdf_test-source',
+      ingest_type: 'upload_pdf',
+      origin: {
+        type: 'user_import',
+        candidate_id: null,
+        user_input_type: 'pdf',
+      },
+    });
+
+    await create_source({ source, raw_file_path }, { cwd });
+
+    const source_dir = path.join(
+      cwd,
+      'knowledge',
+      'sources',
+      '2026',
+      '05',
+      source.id,
+    );
+    await expect(
+      readFile(path.join(source_dir, 'raw', 'original.pdf')),
+    ).resolves.toEqual(Buffer.from('%PDF-1.4\n% fake pdf fixture\n', 'utf8'));
+  });
+
+  it('creates URL Source layout from fetched HTML content', async () => {
+    const cwd = await create_temp_dir();
+    const source = create_test_source({
+      id: 'src_20260514_input_url_example-com-article',
+      title: 'example-com-article',
+      ingest_type: 'input_url',
+      content_type: 'link',
+      origin: {
+        type: 'user_import',
+        candidate_id: null,
+        user_input_type: 'url',
+      },
+      url: 'https://example.com/article',
+    });
+
+    await create_source(
+      {
+        source,
+        raw_file_name: 'fetched.html',
+        raw_content: '<html><body><h1>Article</h1><p>Body</p></body></html>',
+      },
+      { cwd },
+    );
+
+    const source_dir = path.join(
+      cwd,
+      'knowledge',
+      'sources',
+      '2026',
+      '05',
+      source.id,
+    );
+    await expect(
+      readFile(path.join(source_dir, 'raw', 'fetched.html'), 'utf8'),
+    ).resolves.toContain('<h1>Article</h1>');
+  });
+
+  it('rejects invalid raw file names when creating a Source', async () => {
+    const cwd = await create_temp_dir();
+    const source = create_test_source({
+      id: 'src_20260514_input_url_example-com-article',
+      title: 'example-com-article',
+      ingest_type: 'input_url',
+      content_type: 'link',
+      origin: {
+        type: 'user_import',
+        candidate_id: null,
+        user_input_type: 'url',
+      },
+      url: 'https://example.com/article',
+    });
+
+    await expect(
+      create_source(
+        {
+          source,
+          raw_file_name: '../fetched.html',
+          raw_content: '<html></html>',
+        },
+        { cwd },
+      ),
+    ).rejects.toThrow('Invalid raw file name');
   });
 
   it('reads raw Markdown and writes processed artifacts', async () => {

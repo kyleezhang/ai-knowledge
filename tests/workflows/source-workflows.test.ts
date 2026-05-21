@@ -1,11 +1,14 @@
 import { readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import type { UnderstandAgentInput } from '../../src/agents/understand-agent.js';
 import { read_discussion_messages } from '../../src/storage/discussion-log.js';
 import { get_source } from '../../src/storage/source-repo.js';
 import { approve_source_workflow } from '../../src/workflows/approve-source-workflow.js';
 import { discuss_source_workflow } from '../../src/workflows/discuss-source-workflow.js';
 import { ingest_markdown_workflow } from '../../src/workflows/ingest-markdown-workflow.js';
+import { ingest_pdf_workflow } from '../../src/workflows/ingest-pdf-workflow.js';
+import { ingest_url_workflow } from '../../src/workflows/ingest-url-workflow.js';
 import { list_sources_workflow } from '../../src/workflows/list-sources-workflow.js';
 import { process_source_workflow } from '../../src/workflows/process-source-workflow.js';
 import { understand_source_workflow } from '../../src/workflows/understand-source-workflow.js';
@@ -13,7 +16,105 @@ import { show_source_workflow } from '../../src/workflows/show-source-workflow.j
 import {
   create_temp_dir,
   write_markdown_fixture,
+  write_pdf_fixture,
 } from '../source-test-helpers.js';
+
+const example_article_html =
+  '<html><head><title>Example Article</title></head><body><article><h1>Example Article</h1><p>Read <a href="/docs">docs</a>.</p></article></body></html>';
+
+const fake_pdf_processed = {
+  clean_text: '## Page 1\n\nPDF body.\n',
+  segments: [
+    {
+      id: 'seg_0001',
+      order: 1,
+      heading_path: ['Page 1'],
+      text: 'PDF body.',
+    },
+  ],
+  metadata: {
+    title: 'PDF Title',
+    headings: [{ level: 2, title: 'Page 1' }],
+    links: [],
+    segment_count: 1,
+    processed_at: '2026-05-14T01:00:00.000Z',
+    page_count: 1,
+  },
+};
+
+const fake_url_processed = {
+  clean_text: '# Example Article\n\nRead [docs](https://example.com/docs).\n',
+  segments: [
+    {
+      id: 'seg_0001',
+      order: 1,
+      heading_path: ['Example Article'],
+      text: 'Read [docs](https://example.com/docs).',
+    },
+  ],
+  metadata: {
+    title: 'Example Article',
+    headings: [{ level: 1, title: 'Example Article' }],
+    links: [{ text: 'docs', url: 'https://example.com/docs' }],
+    segment_count: 1,
+    processed_at: '2026-05-14T01:10:00.000Z',
+    source_url: 'https://example.com/article',
+  },
+};
+
+async function fetch_html_fixture(): Promise<string> {
+  return example_article_html;
+}
+
+async function reject_fetch_fixture(): Promise<string> {
+  throw new Error('auth required');
+}
+
+async function process_pdf_fixture(): Promise<typeof fake_pdf_processed> {
+  return fake_pdf_processed;
+}
+
+function process_url_fixture(): typeof fake_url_processed {
+  return fake_url_processed;
+}
+
+function build_capture_understand(captured: UnderstandAgentInput[]) {
+  return async ({ agent_input }: { agent_input: UnderstandAgentInput }) => {
+    captured.push(agent_input);
+    return {
+      summary: 'Summary',
+      key_points: ['Point'],
+      uncertainties: ['Unclear'],
+      discussion_starters: ['Question?'],
+    };
+  };
+}
+
+function pdf_raw_path(source_id: string, cwd: string): string {
+  return path.join(
+    cwd,
+    'knowledge',
+    'sources',
+    '2026',
+    '05',
+    source_id,
+    'raw',
+    'original.pdf',
+  );
+}
+
+function html_raw_path(source_id: string, cwd: string): string {
+  return path.join(
+    cwd,
+    'knowledge',
+    'sources',
+    '2026',
+    '05',
+    source_id,
+    'raw',
+    'fetched.html',
+  );
+}
 
 describe('source workflows', () => {
   it('ingests Markdown and returns a process next action', async () => {
@@ -49,6 +150,78 @@ describe('source workflows', () => {
           'ai-knowledge source process src_20260514_upload_markdown_frontmatter-title',
       },
     ]);
+  });
+
+  it('ingests a PDF and returns a process next action', async () => {
+    const cwd = await create_temp_dir();
+    const file_path = await write_pdf_fixture(cwd, 'paper.pdf');
+
+    const result = await ingest_pdf_workflow({
+      file_path,
+      cwd,
+      now: new Date('2026-05-14T00:00:00.000Z'),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(result.data.source_id).toBe('src_20260514_upload_pdf_paper');
+    expect(result.data.source.ingest_type).toBe('upload_pdf');
+    expect(result.data.source.content_type).toBe('document');
+    expect(result.next_actions).toEqual([
+      {
+        label: 'Process source',
+        command: 'ai-knowledge source process src_20260514_upload_pdf_paper',
+      },
+    ]);
+  });
+
+  it('ingests a public URL and returns a process next action', async () => {
+    const cwd = await create_temp_dir();
+
+    const result = await ingest_url_workflow({
+      url: 'https://example.com/article',
+      cwd,
+      now: new Date('2026-05-14T00:00:00.000Z'),
+      fetch_html: fetch_html_fixture,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(result.data.source_id).toBe('src_20260514_input_url_article');
+    expect(result.data.source.ingest_type).toBe('input_url');
+    expect(result.data.source.content_type).toBe('link');
+    expect(result.next_actions).toEqual([
+      {
+        label: 'Process source',
+        command: 'ai-knowledge source process src_20260514_input_url_article',
+      },
+    ]);
+  });
+
+  it('does not create a Source when URL fetch fails after a valid public URL', async () => {
+    const cwd = await create_temp_dir();
+
+    const result = await ingest_url_workflow({
+      url: 'https://example.com/private',
+      cwd,
+      fetch_html: reject_fetch_fixture,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+
+    expect(result.error.code).toBe('INVALID_INPUT');
+    await expect(
+      readdir(path.join(cwd, 'knowledge', 'sources')),
+    ).rejects.toThrow();
   });
 
   it('does not create a Source for invalid Markdown input', async () => {
@@ -143,6 +316,72 @@ describe('source workflows', () => {
         command: `ai-knowledge source understand ${ingest_result.data.source_id}`,
       },
     ]);
+  });
+
+  it('processes a PDF into normalized artifacts and advances Source state', async () => {
+    const cwd = await create_temp_dir();
+    const file_path = await write_pdf_fixture(cwd, 'paper.pdf');
+    const ingest_result = await ingest_pdf_workflow({
+      file_path,
+      cwd,
+      now: new Date('2026-05-14T00:00:00.000Z'),
+    });
+    expect(ingest_result.ok).toBe(true);
+    if (!ingest_result.ok) {
+      return;
+    }
+
+    const result = await process_source_workflow({
+      cwd,
+      source_id: ingest_result.data.source_id,
+      now: new Date('2026-05-14T01:00:00.000Z'),
+      process_pdf: process_pdf_fixture,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(result.data.source.status).toBe('processed');
+    expect(result.data.source.processing_artifacts).toEqual({
+      clean_text: 'processed/clean_text.md',
+      segments: 'processed/segments.json',
+      metadata: 'processed/metadata.json',
+    });
+  });
+
+  it('processes a URL snapshot into normalized artifacts and advances Source state', async () => {
+    const cwd = await create_temp_dir();
+    const ingest_result = await ingest_url_workflow({
+      url: 'https://example.com/article',
+      cwd,
+      now: new Date('2026-05-14T00:00:00.000Z'),
+      fetch_html: fetch_html_fixture,
+    });
+    expect(ingest_result.ok).toBe(true);
+    if (!ingest_result.ok) {
+      return;
+    }
+
+    const result = await process_source_workflow({
+      cwd,
+      source_id: ingest_result.data.source_id,
+      now: new Date('2026-05-14T01:10:00.000Z'),
+      process_url: process_url_fixture,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(result.data.source.status).toBe('processed');
+    expect(result.data.source.processing_artifacts).toEqual({
+      clean_text: 'processed/clean_text.md',
+      segments: 'processed/segments.json',
+      metadata: 'processed/metadata.json',
+    });
   });
 
   it('rejects processing when Source is not ingested', async () => {
@@ -337,6 +576,71 @@ describe('source workflows', () => {
       return;
     }
     expect(result.error.code).toBe('INVALID_STATE');
+  });
+
+  it('understands processed PDF and URL sources from normalized artifacts after raw files are removed', async () => {
+    const cwd = await create_temp_dir();
+    const pdf_file_path = await write_pdf_fixture(cwd, 'paper.pdf');
+    const pdf_ingest = await ingest_pdf_workflow({
+      file_path: pdf_file_path,
+      cwd,
+      now: new Date('2026-05-14T00:00:00.000Z'),
+    });
+    expect(pdf_ingest.ok).toBe(true);
+    if (!pdf_ingest.ok) {
+      return;
+    }
+
+    const url_ingest = await ingest_url_workflow({
+      url: 'https://example.com/article',
+      cwd,
+      now: new Date('2026-05-14T00:10:00.000Z'),
+      fetch_html: fetch_html_fixture,
+    });
+    expect(url_ingest.ok).toBe(true);
+    if (!url_ingest.ok) {
+      return;
+    }
+
+    const pdf_process = await process_source_workflow({
+      cwd,
+      source_id: pdf_ingest.data.source_id,
+      now: new Date('2026-05-14T01:00:00.000Z'),
+      process_pdf: process_pdf_fixture,
+    });
+    const url_process = await process_source_workflow({
+      cwd,
+      source_id: url_ingest.data.source_id,
+      now: new Date('2026-05-14T01:10:00.000Z'),
+      process_url: process_url_fixture,
+    });
+    expect(pdf_process.ok).toBe(true);
+    expect(url_process.ok).toBe(true);
+
+    await rm(pdf_raw_path(pdf_ingest.data.source_id, cwd));
+    await rm(html_raw_path(url_ingest.data.source_id, cwd));
+
+    const captured: UnderstandAgentInput[] = [];
+    const pdf_understand = await understand_source_workflow({
+      cwd,
+      source_id: pdf_ingest.data.source_id,
+      now: new Date('2026-05-14T02:00:00.000Z'),
+      understand: build_capture_understand(captured),
+    });
+    const url_understand = await understand_source_workflow({
+      cwd,
+      source_id: url_ingest.data.source_id,
+      now: new Date('2026-05-14T02:10:00.000Z'),
+      understand: build_capture_understand(captured),
+    });
+
+    expect(pdf_understand.ok).toBe(true);
+    expect(url_understand.ok).toBe(true);
+    expect(captured).toHaveLength(2);
+    expect(captured[0].source_metadata).toMatchObject({ page_count: 1 });
+    expect(captured[1].source_metadata).toMatchObject({
+      source_url: 'https://example.com/article',
+    });
   });
 
   it('marks Source failed when understanding artifacts are missing', async () => {
@@ -577,7 +881,7 @@ describe('source workflows', () => {
     expect(result.error.code).toBe('INVALID_STATE');
   });
 
-  it('rejects approval when discussion is not ready', async () => {
+  it('rejects approval when discussion still has blocking questions', async () => {
     const cwd = await create_temp_dir();
     const source_id = await create_understanding_ready_source(cwd);
     await discuss_source_workflow({
@@ -602,7 +906,37 @@ describe('source workflows', () => {
     if (result.ok) {
       return;
     }
-    expect(result.error.message).toBe('Discussion is not ready for approval.');
+    expect(result.error.message).toBe(
+      'Discussion still has open questions or unresolved issues before approval.',
+    );
+  });
+
+  it('allows explicit user approval when confirmed_points exist and no blockers remain', async () => {
+    const cwd = await create_temp_dir();
+    const source_id = await create_understanding_ready_source(cwd);
+    await discuss_source_workflow({
+      cwd,
+      source_id,
+      user_message: 'Close enough to approve.',
+      discuss: async () => ({
+        assistant_message: 'We have confirmed points.',
+        discussion_summary_update: {
+          confirmed_points: ['Confirmed'],
+          open_questions: [],
+          unresolved_issues: [],
+          next_prompts: [],
+          ready_for_approval: false,
+        },
+      }),
+    });
+
+    const result = await approve_source_workflow({ cwd, source_id });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.data.source.status).toBe('approved_for_note');
   });
 
   it('rejects approval without confirmed points', async () => {

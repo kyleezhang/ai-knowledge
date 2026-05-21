@@ -28,6 +28,62 @@ describe('Source domain', () => {
     );
   });
 
+  it('accepts a PDF user import Source', () => {
+    const source = parse_source(
+      create_test_source({
+        id: 'src_20260514_upload_pdf_test-source',
+        ingest_type: 'upload_pdf',
+        origin: {
+          type: 'user_import',
+          candidate_id: null,
+          user_input_type: 'pdf',
+        },
+      }),
+    );
+
+    expect(source.ingest_type).toBe('upload_pdf');
+    expect(source.origin.user_input_type).toBe('pdf');
+    expect(source.url).toBeNull();
+  });
+
+  it('accepts a URL user import Source with a non-null url', () => {
+    const source = parse_source(
+      create_test_source({
+        id: 'src_20260514_input_url_example-com-article',
+        ingest_type: 'input_url',
+        content_type: 'link',
+        origin: {
+          type: 'user_import',
+          candidate_id: null,
+          user_input_type: 'url',
+        },
+        url: 'https://example.com/article',
+      }),
+    );
+
+    expect(source.ingest_type).toBe('input_url');
+    expect(source.content_type).toBe('link');
+    expect(source.url).toBe('https://example.com/article');
+  });
+
+  it('rejects a URL Source without a url', () => {
+    const source = create_test_source({
+      id: 'src_20260514_input_url_example-com-article',
+      ingest_type: 'input_url',
+      content_type: 'link',
+      origin: {
+        type: 'user_import',
+        candidate_id: null,
+        user_input_type: 'url',
+      },
+      url: null,
+    });
+
+    expect(() => validate_source_invariants(source)).toThrow(
+      'input_url source must have a non-null url',
+    );
+  });
+
   it('does not allow skipping processing before understanding', () => {
     const source = create_test_source();
 
@@ -97,7 +153,7 @@ describe('Source domain', () => {
     );
   });
 
-  it('rejects approved_for_note without ready discussion', () => {
+  it('allows approved_for_note without model-ready suggestion when blockers are absent', () => {
     const source = create_test_source({
       status: 'approved_for_note',
       processing_artifacts: {
@@ -114,13 +170,99 @@ describe('Source domain', () => {
       },
       discussion_summary: {
         ...create_test_source().discussion_summary,
+        discussion_status: 'closed',
         ready_for_approval: false,
+        confirmed_points: ['Confirmed'],
+        open_questions: [],
+        unresolved_issues: [],
+      },
+    });
+
+    expect(() => validate_source_invariants(source)).not.toThrow();
+  });
+
+  it('rejects approved_for_note override when blockers remain', () => {
+    const source = create_test_source({
+      status: 'approved_for_note',
+      processing_artifacts: {
+        clean_text: 'processed/clean_text.md',
+        segments: 'processed/segments.json',
+        metadata: 'processed/metadata.json',
+      },
+      draft_understanding: {
+        summary: 'Summary',
+        key_points: ['Point'],
+        uncertainties: [],
+        discussion_starters: [],
+        generated_at: '2026-05-14T00:00:00.000Z',
+      },
+      discussion_summary: {
+        ...create_test_source().discussion_summary,
+        discussion_status: 'closed',
+        ready_for_approval: false,
+        confirmed_points: ['Confirmed'],
+        open_questions: ['Question'],
+      },
+    });
+
+    expect(() => validate_source_invariants(source)).toThrow(
+      'approved_for_note source cannot override model readiness while blockers remain',
+    );
+  });
+
+  it('rejects approved_for_note when discussion is not closed', () => {
+    const source = create_test_source({
+      status: 'approved_for_note',
+      processing_artifacts: {
+        clean_text: 'processed/clean_text.md',
+        segments: 'processed/segments.json',
+        metadata: 'processed/metadata.json',
+      },
+      draft_understanding: {
+        summary: 'Summary',
+        key_points: ['Point'],
+        uncertainties: [],
+        discussion_starters: [],
+        generated_at: '2026-05-14T00:00:00.000Z',
+      },
+      discussion_summary: {
+        ...create_test_source().discussion_summary,
+        discussion_status: 'open',
+        ready_for_approval: true,
         confirmed_points: ['Confirmed'],
       },
     });
 
     expect(() => validate_source_invariants(source)).toThrow(
-      'approved_for_note source must have ready discussion',
+      'approved_for_note source must have closed discussion',
+    );
+  });
+
+  it('rejects approved_for_note when confirmed points are missing', () => {
+    const source = create_test_source({
+      status: 'approved_for_note',
+      processing_artifacts: {
+        clean_text: 'processed/clean_text.md',
+        segments: 'processed/segments.json',
+        metadata: 'processed/metadata.json',
+      },
+      draft_understanding: {
+        summary: 'Summary',
+        key_points: ['Point'],
+        uncertainties: [],
+        discussion_starters: [],
+        generated_at: '2026-05-14T00:00:00.000Z',
+      },
+      discussion_summary: {
+        ...create_test_source().discussion_summary,
+        discussion_status: 'closed',
+        ready_for_approval: true,
+        confirmed_points: [],
+      },
+    });
+
+    expect(() => validate_source_invariants(source)).toThrow(
+      'ready discussion must have confirmed_points',
     );
   });
 

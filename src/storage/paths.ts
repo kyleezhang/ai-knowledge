@@ -1,4 +1,5 @@
 import path from 'node:path';
+import type { SourceIngestType } from '../domain/source.js';
 import { format_local_year_month } from '../domain/time.js';
 import { resolve_knowledge_dir, resolve_storage_config } from './config.js';
 import { StorageError } from './errors.js';
@@ -79,11 +80,58 @@ export function source_discussion_path(
   return path.join(source_dir(source_id, context), 'discussion.jsonl');
 }
 
-export function source_raw_path(
+export function source_raw_dir(
   source_id: string,
   context: StoragePathContext = {},
 ): string {
-  return path.join(source_dir(source_id, context), 'raw', 'original.md');
+  return path.join(source_dir(source_id, context), 'raw');
+}
+
+export function source_raw_path(
+  source_id: string,
+  raw_file_name: string,
+  context: StoragePathContext = {},
+): string {
+  return path.join(source_raw_dir(source_id, context), raw_file_name);
+}
+
+export function source_raw_markdown_path(
+  source_id: string,
+  context: StoragePathContext = {},
+): string {
+  return source_raw_path(source_id, 'original.md', context);
+}
+
+export function source_raw_pdf_path(
+  source_id: string,
+  context: StoragePathContext = {},
+): string {
+  return source_raw_path(source_id, 'original.pdf', context);
+}
+
+export function source_raw_html_path(
+  source_id: string,
+  context: StoragePathContext = {},
+): string {
+  return source_raw_path(source_id, 'fetched.html', context);
+}
+
+export function source_raw_file_name_for_ingest_type(
+  ingest_type: SourceIngestType,
+): string {
+  switch (ingest_type) {
+    case 'upload_markdown':
+      return 'original.md';
+    case 'upload_pdf':
+      return 'original.pdf';
+    case 'input_url':
+      return 'fetched.html';
+    default:
+      throw new StorageError({
+        code: 'INVALID_PATH',
+        message: `No raw artifact file name defined for ingest_type: ${ingest_type}`,
+      });
+  }
 }
 
 export function source_processed_dir(

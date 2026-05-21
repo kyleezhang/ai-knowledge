@@ -2,9 +2,13 @@ import { transition_source } from '../domain/state-machine.js';
 import type { Source } from '../domain/source.js';
 import { parse_source } from '../domain/source.js';
 import { process_markdown } from '../processing/markdown-processor.js';
-import type { MarkdownProcessingResult } from '../processing/markdown-processor.js';
+import { process_pdf } from '../processing/pdf-processor.js';
+import { process_url_html } from '../processing/url-processor.js';
+import type { DocumentProcessingResult } from '../processing/document-processor.js';
 import {
+  read_raw_fetched_html,
   read_raw_original_markdown,
+  read_raw_original_pdf,
   write_processed_artifacts,
   type ProcessedArtifactPaths,
 } from '../storage/artifact-store.js';
@@ -23,7 +27,23 @@ export type ProcessSourceWorkflowInput = {
     raw_markdown: string;
     source_title: string;
     processed_at: string;
-  }) => MarkdownProcessingResult;
+  }) => DocumentProcessingResult;
+  process_markdown?: (input: {
+    raw_markdown: string;
+    source_title: string;
+    processed_at: string;
+  }) => DocumentProcessingResult;
+  process_pdf?: (input: {
+    raw_pdf: Uint8Array;
+    source_title: string;
+    processed_at: string;
+  }) => Promise<DocumentProcessingResult>;
+  process_url?: (input: {
+    raw_html: string;
+    source_title: string;
+    source_url: string;
+    processed_at: string;
+  }) => DocumentProcessingResult;
   write_artifacts?: (input: {
     source: Source;
     clean_text: string;
@@ -69,12 +89,11 @@ export async function process_source_workflow(
     });
     await save_source(source, context);
 
-    const raw_markdown = await read_raw_original_markdown(source.id, context);
-    const processor = input.processor ?? process_markdown;
-    const processed = processor({
-      raw_markdown,
-      source_title: source.title,
-      processed_at: timestamp,
+    const processed = await dispatch_processing({
+      source,
+      input,
+      timestamp,
+      context,
     });
     const write_artifacts =
       input.write_artifacts ??
@@ -147,6 +166,58 @@ export async function process_source_workflow(
       },
     };
   }
+}
+
+async function dispatch_processing(input: {
+  source: Source;
+  input: ProcessSourceWorkflowInput;
+  timestamp: string;
+  context: { config?: Partial<StorageConfig>; cwd?: string };
+}): Promise<DocumentProcessingResult> {
+  if (input.source.ingest_type === 'upload_markdown') {
+    const raw_markdown = await read_raw_original_markdown(
+      input.source.id,
+      input.context,
+    );
+    const processor =
+      input.input.process_markdown ?? input.input.processor ?? process_markdown;
+    return processor({
+      raw_markdown,
+      source_title: input.source.title,
+      processed_at: input.timestamp,
+    });
+  }
+
+  if (input.source.ingest_type === 'upload_pdf') {
+    const raw_pdf = await read_raw_original_pdf(input.source.id, input.context);
+    const processor = input.input.process_pdf ?? process_pdf;
+    return processor({
+      raw_pdf,
+      source_title: input.source.title,
+      processed_at: input.timestamp,
+    });
+  }
+
+  if (input.source.ingest_type === 'input_url') {
+    if (input.source.url === null) {
+      throw new Error('URL source is missing source.url.');
+    }
+    const raw_html = await read_raw_fetched_html(
+      input.source.id,
+      input.context,
+    );
+    const processor = input.input.process_url ?? process_url_html;
+    return processor({
+      raw_html,
+      source_title: input.source.title,
+      source_url: input.source.url,
+      processed_at: input.timestamp,
+    });
+  }
+
+  throw new Error(
+    `Unsupported ingest_type for processing: ${input.source.ingest_type}`,
+  );
 }
 
 function storage_error_result(

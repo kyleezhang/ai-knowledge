@@ -1,13 +1,17 @@
 import { access, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { create_source_id } from '../domain/ids.js';
 import { create_slug } from '../domain/slug.js';
-import { parse_source, type Source } from '../domain/source.js';
+import type { Source } from '../domain/source.js';
 import type { StorageConfig } from '../storage/config.js';
 import { StorageError } from '../storage/errors.js';
-import { create_source, get_source } from '../storage/source-repo.js';
+import { create_source } from '../storage/source-repo.js';
 import type { NextAction, WorkflowResult } from './types.js';
 import { summarize_source, type SourceSummary } from './source-summary.js';
+import {
+  build_user_import_source,
+  create_available_source_id,
+  next_actions_for_source,
+} from './ingest-source-helpers.js';
 
 export type IngestMarkdownWorkflowInput = {
   file_path: string;
@@ -41,51 +45,30 @@ export async function ingest_markdown_workflow(
     }
 
     const now = input.now ?? new Date();
-    const timestamp = now_utc_iso_for_date(now);
+    const timestamp = now.toISOString();
     const title = extract_markdown_title(raw, resolved_file_path);
     const slug = create_slug(title);
     const source_id = await create_available_source_id({
       now,
       slug,
+      ingest_type: 'upload_markdown',
       storage_config: input.storage_config,
       cwd: input.cwd,
     });
 
-    const source = parse_source({
-      id: source_id,
+    const source: Source = build_user_import_source({
+      source_id,
       title,
-      status: 'ingested',
       ingest_type: 'upload_markdown',
       content_type: 'document',
-      origin: {
-        type: 'user_import',
-        candidate_id: null,
-        user_input_type: 'markdown',
-      },
-      origin_candidate_id: null,
-      url: null,
-      author: null,
-      published_at: null,
-      ingested_at: timestamp,
-      updated_at: timestamp,
-      processing_artifacts: {},
-      draft_understanding: null,
-      discussion_summary: {
-        discussion_status: 'open',
-        summary_version: 0,
-        confirmed_points: [],
-        open_questions: [],
-        unresolved_issues: [],
-        next_prompts: [],
-        ready_for_approval: false,
-        last_updated_at: timestamp,
-      },
-      note_ids: [],
-    } satisfies Source);
+      user_input_type: 'markdown',
+      timestamp,
+    });
 
     const created_source = await create_source(
       {
         source,
+        raw_file_name: 'original.md',
         raw_file_path: resolved_file_path,
       },
       {
@@ -156,42 +139,8 @@ function strip_quotes(value: string): string {
   return value.replace(/^['"]|['"]$/gu, '');
 }
 
-async function create_available_source_id(input: {
-  now: Date;
-  slug: string;
-  storage_config?: Partial<StorageConfig>;
-  cwd?: string;
-}): Promise<string> {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    const source_id = create_source_id({
-      date: input.now,
-      ingest_type: 'upload_markdown',
-      slug: input.slug,
-      suffix: attempt === 0 ? undefined : String(attempt + 1).padStart(2, '0'),
-    });
-
-    try {
-      await get_source(source_id, {
-        config: input.storage_config,
-        cwd: input.cwd,
-      });
-    } catch {
-      return source_id;
-    }
-  }
-
-  throw new Error('Failed to create unique source id.');
-}
-
-function next_actions_for_source(source_id: string): NextAction[] {
-  return [
-    {
-      label: 'Process source',
-      command: `ai-knowledge source process ${source_id}`,
-    },
-  ];
-}
-
-function now_utc_iso_for_date(date: Date): string {
-  return date.toISOString();
+export function next_actions_for_ingested_markdown_source(
+  source_id: string,
+): NextAction[] {
+  return next_actions_for_source(source_id);
 }

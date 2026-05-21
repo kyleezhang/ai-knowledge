@@ -5,7 +5,7 @@
 This capability defines how the system creates the first structured interpretation of a processed `Source`. Draft understanding is discussion input, not approved knowledge.
 ## Requirements
 ### Requirement: Draft Understanding Requires Processed Artifacts
-The system SHALL generate `draft_understanding` only from a `Source` that has status `processed` and valid processed artifacts. P0 Markdown draft understanding MUST consume `processing_artifacts.clean_text`, `processing_artifacts.segments`, and `processing_artifacts.metadata` through workflow-managed storage reads.
+The system SHALL generate `draft_understanding` only from a `Source` that has status `processed` and valid processed artifacts. For Markdown, PDF, and explicit URL Sources, draft understanding MUST consume `processing_artifacts.clean_text`, `processing_artifacts.segments`, and `processing_artifacts.metadata` through workflow-managed storage reads, and MUST NOT depend on input-specific raw files such as `raw/original.pdf` or `raw/fetched.html`.
 
 #### Scenario: Processed source is understood
 - **WHEN** a `Source` has status `processed` and valid `processing_artifacts`
@@ -21,6 +21,11 @@ The system SHALL generate `draft_understanding` only from a `Source` that has st
 - **WHEN** a workflow requests draft understanding for a `Source` whose status is not `processed`
 - **THEN** the system rejects the request
 - **AND** the existing Source status remains unchanged
+
+#### Scenario: PDF or URL source is understood from normalized artifacts
+- **WHEN** the workflow generates draft understanding for a processed PDF or URL Source
+- **THEN** it reads only the normalized processed artifacts through storage-managed paths
+- **AND** the Understand Agent remains agnostic to the original raw input format
 
 ### Requirement: Agent Output Is Schema Validated
 The system SHALL validate all agent-produced draft understanding before workflow continuation. The Understand Agent MUST produce only semantic candidate fields, and the workflow MUST add system-controlled fields such as `generated_at`.
