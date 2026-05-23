@@ -881,19 +881,19 @@ describe('source workflows', () => {
     expect(result.error.code).toBe('INVALID_STATE');
   });
 
-  it('rejects approval when discussion still has blocking questions', async () => {
+  it('approves through explicit confirmation while preserving advisory questions', async () => {
     const cwd = await create_temp_dir();
     const source_id = await create_understanding_ready_source(cwd);
     await discuss_source_workflow({
       cwd,
       source_id,
-      user_message: 'Not ready',
+      user_message: 'Approve with advisory questions preserved.',
       discuss: async () => ({
         assistant_message: 'Not ready.',
         discussion_summary_update: {
           confirmed_points: ['Confirmed'],
           open_questions: ['Question'],
-          unresolved_issues: [],
+          unresolved_issues: ['Issue'],
           next_prompts: [],
           ready_for_approval: false,
         },
@@ -901,13 +901,17 @@ describe('source workflows', () => {
     });
 
     const result = await approve_source_workflow({ cwd, source_id });
+    const source = await get_source(source_id, { cwd });
 
-    expect(result.ok).toBe(false);
-    if (result.ok) {
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
       return;
     }
-    expect(result.error.message).toBe(
-      'Discussion still has open questions or unresolved issues before approval.',
+    expect(result.data.source.status).toBe('approved_for_note');
+    expect(source.discussion_summary.open_questions).toEqual(['Question']);
+    expect(source.discussion_summary.unresolved_issues).toEqual(['Issue']);
+    expect(source.discussion_summary.next_prompts).toContain(
+      'Approved through explicit user confirmation while model readiness or advisory discussion signals were not fully converged.',
     );
   });
 

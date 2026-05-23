@@ -386,38 +386,52 @@ describe('source CLI', () => {
     expect(harness.stdout.join('\n')).toContain('Reply: This matters.');
   });
 
-  it('checks approve readiness in REPL with clearer messages', async () => {
+  it('approves directly in REPL with explicit user confirmation', async () => {
     const cwd = await create_temp_dir();
-    const source_id = await ingest_process_understand(
+    const missing_points_source_id = await ingest_process_understand(
       cwd,
-      '# Approve Check\n\nBody.\n',
+      '# Approve Missing Points\n\nBody.\n',
     );
     const missing_points = create_cli_harness(cwd, {
       repl_input: async_iter(['/approve', '/exit']),
     });
-    await missing_points.run(['source', 'discuss', source_id]);
+    await missing_points.run(['source', 'discuss', missing_points_source_id]);
     expect(missing_points.stdout.join('\n')).toContain(
       'Discussion is missing confirmed_points and cannot be approved yet.',
     );
 
+    const explicit_source_id = await ingest_process_understand(
+      cwd,
+      '# Explicit Approve\n\nBody.\n',
+    );
     const explicit_confirm = create_cli_harness(cwd, {
       repl_input: async_iter(['Confirm this.', '/approve', '/exit']),
       discuss: async () => ({
         assistant_message: 'We have enough confirmed points.',
         discussion_summary_update: {
           confirmed_points: ['Confirmed'],
-          open_questions: [],
-          unresolved_issues: [],
+          open_questions: ['Question'],
+          unresolved_issues: ['Issue'],
           next_prompts: [],
           ready_for_approval: false,
         },
       }),
     });
-    await explicit_confirm.run(['source', 'discuss', source_id]);
-    expect(explicit_confirm.stdout.join('\n')).toContain(
-      `Model readiness is still false, but you can explicitly confirm now. Next: ai-knowledge source approve ${source_id}`,
+    await explicit_confirm.run(['source', 'discuss', explicit_source_id]);
+    const explicit_output = explicit_confirm.stdout.join('\n');
+    expect(explicit_output).toContain(
+      'Warning: approving with model readiness still false or advisory open questions/unresolved issues preserved.',
+    );
+    expect(explicit_output).toContain('Source approved for note.');
+    expect(explicit_output).toContain('status: approved_for_note');
+    expect(explicit_output).toContain(
+      `ai-knowledge note compose ${explicit_source_id}`,
     );
 
+    const ready_source_id = await ingest_process_understand(
+      cwd,
+      '# Ready Approve\n\nBody.\n',
+    );
     const ready = create_cli_harness(cwd, {
       repl_input: async_iter(['Confirm again.', '/approve', '/exit']),
       discuss: async () => ({
@@ -431,10 +445,11 @@ describe('source CLI', () => {
         },
       }),
     });
-    await ready.run(['source', 'discuss', source_id]);
-    expect(ready.stdout.join('\n')).toContain(
-      `Ready for approval. Next: ai-knowledge source approve ${source_id}`,
-    );
+    await ready.run(['source', 'discuss', ready_source_id]);
+    const ready_output = ready.stdout.join('\n');
+    expect(ready_output).toContain('Source approved for note.');
+    expect(ready_output).toContain('status: approved_for_note');
+    expect(ready_output).not.toContain('Warning: approving');
   });
 
   it('understands PDF and URL sources from normalized artifacts only', async () => {
@@ -589,13 +604,32 @@ describe('source CLI', () => {
     expect(wrong_status.exit_code).toBe(1);
     expect(wrong_status.stderr.join('\n')).toContain('code: INVALID_STATE');
 
-    await make_discussion_not_ready(cwd, source_id);
-    const not_ready = create_cli_harness(cwd);
+    const no_points_source_id = await ingest_process_understand(
+      cwd,
+      '# Approve No Points\n\nBody.\n',
+    );
+    const no_points_discussion = create_cli_harness(cwd, {
+      repl_input: async_iter(['No confirmed points yet.', '/exit']),
+      discuss: async () => ({
+        assistant_message: 'Need more confirmation.',
+        discussion_summary_update: {
+          confirmed_points: [],
+          open_questions: [],
+          unresolved_issues: [],
+          next_prompts: [],
+          ready_for_approval: false,
+        },
+      }),
+    });
+    await no_points_discussion.run(['source', 'discuss', no_points_source_id]);
+    const no_points = create_cli_harness(cwd);
 
-    await not_ready.run(['source', 'approve', source_id]);
+    await no_points.run(['source', 'approve', no_points_source_id]);
 
-    expect(not_ready.exit_code).toBe(1);
-    expect(not_ready.stderr.join('\n')).toContain('code: INVALID_STATE');
+    expect(no_points.exit_code).toBe(1);
+    expect(no_points.stderr.join('\n')).toContain(
+      'Discussion must have confirmed_points before approval.',
+    );
   });
 
   it('composes, renders, lists, and shows Notes', async () => {
@@ -1059,26 +1093,6 @@ async function make_discussion_ready(
         unresolved_issues: [],
         next_prompts: [],
         ready_for_approval: true,
-      },
-    }),
-  });
-  await harness.run(['source', 'discuss', source_id]);
-}
-
-async function make_discussion_not_ready(
-  cwd: string,
-  source_id: string,
-): Promise<void> {
-  const harness = create_cli_harness(cwd, {
-    repl_input: async_iter(['Not ready.', '/exit']),
-    discuss: async () => ({
-      assistant_message: 'Not ready.',
-      discussion_summary_update: {
-        confirmed_points: ['Confirmed'],
-        open_questions: ['Question'],
-        unresolved_issues: [],
-        next_prompts: [],
-        ready_for_approval: false,
       },
     }),
   });

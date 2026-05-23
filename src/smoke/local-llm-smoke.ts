@@ -9,7 +9,7 @@ const acceptance_fixture_file = new URL(
 );
 const acceptance_question = 'agent memory boundary approved notes';
 const discussion_user_message =
-  'Please confirm the approved memory boundary we should keep in the final note.';
+  'I explicitly confirm this point for the final note: Only approved Notes should be indexed and used for grounded answers in the P0 workflow. There are no open questions or unresolved issues.';
 
 export type SmokeRunResult = {
   status: 'passed' | 'skipped';
@@ -55,6 +55,9 @@ export async function run_local_llm_smoke_test(
       throw new Error(
         [
           `Command failed: ai-knowledge ${args.join(' ')}`,
+          `workdir: ${workdir}`,
+          source_id === undefined ? '' : `source_id: ${source_id}`,
+          note_id === undefined ? '' : `note_id: ${note_id}`,
           io.stderr.join('\n'),
           io.stdout.join('\n'),
         ]
@@ -119,12 +122,9 @@ export async function run_local_llm_smoke_test(
       'Smoke test expected discussion REPL to start.',
     );
 
-    const approve_source_json = JSON.parse(
-      await run(['source', 'approve', source_id, '--json']),
-    ) as { ok: true; data: { source: { status: string } } };
     assert(
-      approve_source_json.data.source.status === 'approved_for_note',
-      'Smoke test expected approved_for_note source status.',
+      discuss_output.includes('Source approved for note.'),
+      'Smoke test expected discussion approval to complete.',
     );
 
     const compose_json = JSON.parse(

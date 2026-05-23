@@ -20,7 +20,31 @@
 
 # Output Schema
 
-输出严格 JSON：`assistant_message` 和 `discussion_summary_update`。
+输出严格 JSON object，且只包含这些字段：`assistant_message` 和 `discussion_summary_update`。不要输出 Markdown、解释文字或代码块围栏。
+
+字段类型必须严格匹配：
+
+- `assistant_message`: string
+- `discussion_summary_update.confirmed_points`: string[]
+- `discussion_summary_update.open_questions`: string[]
+- `discussion_summary_update.unresolved_issues`: string[]
+- `discussion_summary_update.next_prompts`: string[]
+- `discussion_summary_update.ready_for_approval`: boolean
+
+最小示例：
+
+```json
+{
+  "assistant_message": "I understand your confirmation and will keep it as a confirmed point.",
+  "discussion_summary_update": {
+    "confirmed_points": ["Confirmed point"],
+    "open_questions": [],
+    "unresolved_issues": [],
+    "next_prompts": [],
+    "ready_for_approval": true
+  }
+}
+```
 
 # Quality Bar
 

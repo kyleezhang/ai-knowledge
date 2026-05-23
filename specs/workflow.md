@@ -227,13 +227,13 @@ knowledge/
 - `confirmed_points`
   当前已经形成共识的结论点
 - `open_questions`
-  仍需用户补充判断的问题
+  仍需用户补充判断的问题；这是收敛信号，不是用户显式确认后的硬阻塞条件
 - `unresolved_issues`
-  资料本身的信息缺口、冲突点或暂未解决的问题
+  资料本身的信息缺口、冲突点或暂未解决的问题；这是收敛信号，不是用户显式确认后的硬阻塞条件
 - `next_prompts`
-  建议进入下一轮讨论的切入问题
+  建议进入下一轮讨论的切入问题，也可记录用户显式确认时覆盖模型收敛建议的审计信息
 - `ready_for_approval`
-  显式布尔信号，表示当前结构化结论是否已达到可请求确认的门槛
+  显式布尔信号，表示当前结构化结论是否已达到可请求确认的门槛；该信号由 Agent 建议，不能替代用户确认
 
 ## 6. 详细阶段说明
 
@@ -380,13 +380,13 @@ knowledge/
 
 ### 输入
 
-- 已收敛的讨论结论
+- 至少一个用户已确认的核心结论
 - `discussion_summary`
 
 ### 输出
 
 - `Source` 状态更新为 `approved_for_note`
-- `discussion_summary.discussion_status` 更新为 `ready_for_approval` 或 `closed`
+- `discussion_summary.discussion_status` 更新为 `closed`
 - 显式确认结构化结论可用于生成 `Note`
 
 ### 确认信号
@@ -401,8 +401,10 @@ knowledge/
 
 - 用户确认的是当前结构化结论，而不是 Markdown 草稿
 - 没有明确确认，不应自动生成正式笔记
+- 没有 `confirmed_points`，不应进入 `approved_for_note`
 - 系统应支持用户在确认前继续追问或修改结论
-- 进入可确认状态前，讨论至少应满足以下收敛条件：
+- Agent 的 `ready_for_approval`、`open_questions`、`unresolved_issues` 用于提示收敛质量；当用户已经显式确认且存在 `confirmed_points` 时，这些信号应被保留为上下文和审计信息，而不是阻止确认的最终权威
+- 进入可确认状态前，讨论通常应满足以下收敛条件：
   - 已形成核心结论
   - 已形成价值判断
   - 关键不确定性已显式列出

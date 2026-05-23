@@ -5,6 +5,7 @@ import {
   build_answer_user_prompt,
   type AnswerAgentInput,
 } from '../../src/agents/answer-agent.js';
+import { AgentError } from '../../src/agents/errors.js';
 import type {
   GenerateJsonInput,
   GenerateTextResult,
@@ -31,8 +32,10 @@ const agent_input: AnswerAgentInput = {
 
 class FakeLlmClient implements LlmClient {
   last_input: GenerateJsonInput<z.ZodType> | undefined;
+  inputs: GenerateJsonInput<z.ZodType>[] = [];
+  private index = 0;
 
-  constructor(private readonly output: unknown) {}
+  constructor(private readonly outputs: unknown | unknown[]) {}
 
   async generate_text(): Promise<GenerateTextResult> {
     return { text: '' };
@@ -42,7 +45,14 @@ class FakeLlmClient implements LlmClient {
     input: GenerateJsonInput<TSchema>,
   ): Promise<z.infer<TSchema>> {
     this.last_input = input;
-    return input.schema.parse(this.output) as z.infer<TSchema>;
+    this.inputs.push(input);
+    const outputs = Array.isArray(this.outputs) ? this.outputs : [this.outputs];
+    const output = outputs[Math.min(this.index, outputs.length - 1)];
+    this.index += 1;
+    if (output instanceof Error) {
+      throw output;
+    }
+    return input.schema.parse(output) as z.infer<TSchema>;
   }
 }
 
@@ -74,14 +84,51 @@ describe('answer agent', () => {
     expect(llm_client.last_input?.system_prompt).toContain('Answer Agent');
   });
 
-  it('rejects schema-invalid output', async () => {
-    const llm_client = new FakeLlmClient({
-      conclusion: 'Bad',
-      cited_notes: [{ note_id: 'note_1' }],
-      unconfirmed_materials: [],
-      limitations: [],
+  it('retries once when the LLM output fails schema validation', async () => {
+    const schema_error = new AgentError({
+      code: 'LLM_OUTPUT_SCHEMA_FAILED',
+      message: 'LLM JSON output failed schema validation.',
+      details: [
+        {
+          path: ['cited_notes', 0, 'relevant_points'],
+          message: 'Invalid input: expected array, received string',
+        },
+      ],
     });
+    const llm_client = new FakeLlmClient([
+      schema_error,
+      {
+        conclusion: 'Agent memory helps.',
+        cited_notes: [
+          {
+            note_id: agent_input.approved_notes[0].id,
+            title: agent_input.approved_notes[0].title,
+            relevant_points: ['Confirmed conclusion'],
+          },
+        ],
+        unconfirmed_materials: [],
+        limitations: [],
+      },
+    ]);
 
-    await expect(answer_agent({ llm_client, agent_input })).rejects.toThrow();
+    const result = await answer_agent({ llm_client, agent_input });
+
+    expect(result.conclusion).toBe('Agent memory helps.');
+    expect(llm_client.inputs).toHaveLength(2);
+    expect(llm_client.inputs[1].user_prompt).toContain(
+      'Previous Output Schema Error',
+    );
+  });
+
+  it('rejects schema-invalid output after retry', async () => {
+    const schema_error = new AgentError({
+      code: 'LLM_OUTPUT_SCHEMA_FAILED',
+      message: 'LLM JSON output failed schema validation.',
+    });
+    const llm_client = new FakeLlmClient([schema_error, schema_error]);
+
+    await expect(answer_agent({ llm_client, agent_input })).rejects.toThrow(
+      'LLM JSON output failed schema validation.',
+    );
   });
 });

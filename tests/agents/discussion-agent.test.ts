@@ -5,6 +5,7 @@ import {
   discussion_agent,
   type DiscussionAgentInput,
 } from '../../src/agents/discussion-agent.js';
+import { AgentError } from '../../src/agents/errors.js';
 import type {
   GenerateJsonInput,
   GenerateTextResult,
@@ -37,8 +38,10 @@ const agent_input: DiscussionAgentInput = {
 
 class FakeLlmClient implements LlmClient {
   last_input: GenerateJsonInput<z.ZodType> | undefined;
+  inputs: GenerateJsonInput<z.ZodType>[] = [];
+  private index = 0;
 
-  constructor(private readonly output: unknown) {}
+  constructor(private readonly outputs: unknown | unknown[]) {}
 
   async generate_text(): Promise<GenerateTextResult> {
     return { text: '' };
@@ -48,7 +51,14 @@ class FakeLlmClient implements LlmClient {
     input: GenerateJsonInput<TSchema>,
   ): Promise<z.infer<TSchema>> {
     this.last_input = input;
-    return input.schema.parse(this.output) as z.infer<TSchema>;
+    this.inputs.push(input);
+    const outputs = Array.isArray(this.outputs) ? this.outputs : [this.outputs];
+    const output = outputs[Math.min(this.index, outputs.length - 1)];
+    this.index += 1;
+    if (output instanceof Error) {
+      throw output;
+    }
+    return input.schema.parse(output) as z.infer<TSchema>;
   }
 }
 
@@ -81,20 +91,74 @@ describe('discussion agent', () => {
     expect(llm_client.last_input?.user_prompt).toContain('Draft summary');
   });
 
-  it('rejects schema-invalid output', async () => {
+  it('retries once when LLM output is not valid JSON', async () => {
+    const parse_error = new AgentError({
+      code: 'LLM_OUTPUT_PARSE_FAILED',
+      message: 'LLM output is not valid JSON.',
+    });
+    const llm_client = new FakeLlmClient([
+      parse_error,
+      {
+        assistant_message: 'Good point.',
+        discussion_summary_update: {
+          confirmed_points: ['Agents matter.'],
+          open_questions: [],
+          unresolved_issues: [],
+          next_prompts: [],
+          ready_for_approval: true,
+        },
+      },
+    ]);
+
+    const result = await discussion_agent({ llm_client, agent_input });
+
+    expect(result.discussion_summary_update.confirmed_points).toEqual([
+      'Agents matter.',
+    ]);
+    expect(llm_client.inputs).toHaveLength(2);
+    expect(llm_client.inputs[1].user_prompt).toContain(
+      'Previous Output Error',
+    );
+  });
+
+  it('derives confirmed points from explicit user confirmation when model omits them', async () => {
     const llm_client = new FakeLlmClient({
-      assistant_message: 'Bad shape',
+      assistant_message: 'Acknowledged.',
       discussion_summary_update: {
-        confirmed_points: 'invalid',
-        open_questions: [],
-        unresolved_issues: [],
+        confirmed_points: [],
+        open_questions: ['Question'],
+        unresolved_issues: ['Issue'],
         next_prompts: [],
         ready_for_approval: false,
       },
     });
 
+    const result = await discussion_agent({
+      llm_client,
+      agent_input: {
+        ...agent_input,
+        user_message:
+          'I explicitly confirm this point for the final note: Only approved Notes should be indexed and used for grounded answers in the P0 workflow. There are no open questions or unresolved issues.',
+      },
+    });
+
+    expect(result.discussion_summary_update.confirmed_points).toEqual([
+      'Only approved Notes should be indexed and used for grounded answers in the P0 workflow.',
+    ]);
+    expect(result.discussion_summary_update.open_questions).toEqual([]);
+    expect(result.discussion_summary_update.unresolved_issues).toEqual([]);
+    expect(result.discussion_summary_update.ready_for_approval).toBe(true);
+  });
+
+  it('rejects schema-invalid output after retry', async () => {
+    const schema_error = new AgentError({
+      code: 'LLM_OUTPUT_SCHEMA_FAILED',
+      message: 'LLM JSON output failed schema validation.',
+    });
+    const llm_client = new FakeLlmClient([schema_error, schema_error]);
+
     await expect(
       discussion_agent({ llm_client, agent_input }),
-    ).rejects.toThrow();
+    ).rejects.toThrow('LLM JSON output failed schema validation.');
   });
 });

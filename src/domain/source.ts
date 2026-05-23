@@ -218,16 +218,6 @@ export function validate_source_invariants(source: Source): void {
       throw new Error('approved_for_note source must have closed discussion');
     }
 
-    if (
-      !source.discussion_summary.ready_for_approval &&
-      (source.discussion_summary.open_questions.length > 0 ||
-        source.discussion_summary.unresolved_issues.length > 0)
-    ) {
-      throw new Error(
-        'approved_for_note source cannot override model readiness while blockers remain',
-      );
-    }
-
     if (source.last_error !== undefined) {
       throw new Error('approved_for_note source must not have last_error');
     }

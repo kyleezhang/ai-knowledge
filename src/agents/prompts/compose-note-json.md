@@ -20,7 +20,31 @@
 
 # Output Schema
 
-输出严格 JSON：`title`、`conclusions`、`why_it_matters`、`current_understanding`、`open_questions`、`related_note_ids`、`source_refs`。
+输出严格 JSON object，且只包含这些字段：`title`、`conclusions`、`why_it_matters`、`current_understanding`、`open_questions`、`related_note_ids`、`source_refs`。
+
+字段类型必须严格匹配：
+
+- `title`: string
+- `conclusions`: string[]，元素必须逐字来自 Allowed Conclusions
+- `why_it_matters`: string[]，即使只有一条也必须是数组，不能是字符串
+- `current_understanding`: string
+- `open_questions`: string[]，没有则输出 `[]`
+- `related_note_ids`: string[]，没有则输出 `[]`
+- `source_refs`: SourceRef[]，必须来自输入 Source Refs
+
+最小示例：
+
+```json
+{
+  "title": "Example Note",
+  "conclusions": ["Confirmed conclusion"],
+  "why_it_matters": ["It matters."],
+  "current_understanding": "Current understanding.",
+  "open_questions": [],
+  "related_note_ids": [],
+  "source_refs": []
+}
+```
 
 # Quality Bar
 

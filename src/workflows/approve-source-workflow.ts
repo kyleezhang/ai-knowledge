@@ -36,18 +36,12 @@ export async function approve_source_workflow(
       );
     }
     const summary = source.discussion_summary;
-    const has_blocking_questions =
+    const has_advisory_blockers =
       summary.open_questions.length > 0 || summary.unresolved_issues.length > 0;
-
-    if (!summary.ready_for_approval && has_blocking_questions) {
-      return invalid_state(
-        'Discussion still has open questions or unresolved issues before approval.',
-      );
-    }
-
-    const approval_note = summary.ready_for_approval
-      ? undefined
-      : 'Approved through explicit user confirmation before model readiness.';
+    const approval_note =
+      summary.ready_for_approval && !has_advisory_blockers
+        ? undefined
+        : 'Approved through explicit user confirmation while model readiness or advisory discussion signals were not fully converged.';
 
     const timestamp = (input.now ?? new Date()).toISOString();
     const updated_source = parse_source({

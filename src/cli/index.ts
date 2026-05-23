@@ -540,8 +540,9 @@ async function run_discuss_repl(input: DiscussReplInput): Promise<void> {
     if (message.length === 0) {
       continue;
     }
-    if (await handle_discuss_command(input, message)) {
-      if (message === '/exit') {
+    const command_result = await handle_discuss_command(input, message);
+    if (command_result.handled) {
+      if (command_result.exit) {
         return;
       }
       continue;
@@ -560,21 +561,26 @@ async function run_discuss_repl(input: DiscussReplInput): Promise<void> {
   }
 }
 
+type DiscussCommandResult = {
+  handled: boolean;
+  exit?: boolean;
+};
+
 async function handle_discuss_command(
   input: DiscussReplInput,
   command: string,
-): Promise<boolean> {
+): Promise<DiscussCommandResult> {
   if (!command.startsWith('/')) {
-    return false;
+    return { handled: false };
   }
 
   if (command === '/help') {
     input.io.stdout('Commands: /summary /draft /status /approve /exit /help');
-    return true;
+    return { handled: true };
   }
   if (command === '/exit') {
     input.io.stdout('Discussion exited.');
-    return true;
+    return { handled: true, exit: true };
   }
 
   const current = await show_source_workflow({
@@ -582,25 +588,25 @@ async function handle_discuss_command(
     cwd: input.cwd,
   });
   if (!handle_result(current, input.io)) {
-    return true;
+    return { handled: true };
   }
   const source = current.data.source;
   const raw_source = current.data.raw_source;
 
   if (command === '/summary') {
     input.io.stdout(JSON.stringify(raw_source.discussion_summary, null, 2));
-    return true;
+    return { handled: true };
   }
   if (command === '/draft') {
     input.io.stdout(JSON.stringify(raw_source.draft_understanding, null, 2));
-    return true;
+    return { handled: true };
   }
   if (command === '/status') {
     input.io.stdout(`status: ${source.status}`);
     input.io.stdout(
       `ready_for_approval: ${raw_source.discussion_summary.ready_for_approval}`,
     );
-    return true;
+    return { handled: true };
   }
   if (command === '/approve') {
     const summary = raw_source.discussion_summary;
@@ -608,34 +614,33 @@ async function handle_discuss_command(
       input.io.stdout(
         'Discussion is missing confirmed_points and cannot be approved yet.',
       );
-      return true;
+      return { handled: true };
     }
 
-    const has_blocking_questions =
+    const has_advisory_blockers =
       summary.open_questions.length > 0 || summary.unresolved_issues.length > 0;
-
-    if (summary.ready_for_approval) {
+    if (!summary.ready_for_approval || has_advisory_blockers) {
       input.io.stdout(
-        `Ready for approval. Next: ai-knowledge source approve ${input.source_id}`,
+        'Warning: approving with model readiness still false or advisory open questions/unresolved issues preserved.',
       );
-      return true;
     }
 
-    if (has_blocking_questions) {
-      input.io.stdout(
-        'Discussion still has open questions or unresolved issues before approval.',
-      );
-      return true;
+    const result = await approve_source_workflow({
+      source_id: input.source_id,
+      cwd: input.cwd,
+    });
+    if (!handle_result(result, input.io)) {
+      return { handled: true };
     }
 
-    input.io.stdout(
-      `Model readiness is still false, but you can explicitly confirm now. Next: ai-knowledge source approve ${input.source_id}`,
-    );
-    return true;
+    input.io.stdout('Source approved for note.');
+    print_source_summary(result.data.source, input.io);
+    print_next_actions(result.next_actions, input.io);
+    return { handled: true, exit: true };
   }
 
   input.io.stdout(`Unknown command: ${command}`);
-  return true;
+  return { handled: true };
 }
 
 async function* default_repl_input(): AsyncIterable<string> {

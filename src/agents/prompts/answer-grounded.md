@@ -20,7 +20,31 @@
 
 # Output Schema
 
-输出严格 JSON：`conclusion`、`cited_notes`、`unconfirmed_materials`、`limitations`。
+输出严格 JSON object，且只包含这些字段：`conclusion`、`cited_notes`、`unconfirmed_materials`、`limitations`。
+
+字段类型必须严格匹配：
+
+- `conclusion`: string
+- `cited_notes`: `{ note_id: string, title: string, relevant_points: string[] }[]`
+- `unconfirmed_materials`: `[]`，P0 必须为空数组
+- `limitations`: string[]，没有则输出 `[]`
+
+最小示例：
+
+```json
+{
+  "conclusion": "Answer based on approved Notes.",
+  "cited_notes": [
+    {
+      "note_id": "note_20260514_example",
+      "title": "Example Note",
+      "relevant_points": ["Confirmed point"]
+    }
+  ],
+  "unconfirmed_materials": [],
+  "limitations": []
+}
+```
 
 # Quality Bar
 

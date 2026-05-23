@@ -181,7 +181,7 @@ describe('Source domain', () => {
     expect(() => validate_source_invariants(source)).not.toThrow();
   });
 
-  it('rejects approved_for_note override when blockers remain', () => {
+  it('allows approved_for_note with preserved advisory blockers after explicit approval', () => {
     const source = create_test_source({
       status: 'approved_for_note',
       processing_artifacts: {
@@ -202,12 +202,11 @@ describe('Source domain', () => {
         ready_for_approval: false,
         confirmed_points: ['Confirmed'],
         open_questions: ['Question'],
+        unresolved_issues: ['Issue'],
       },
     });
 
-    expect(() => validate_source_invariants(source)).toThrow(
-      'approved_for_note source cannot override model readiness while blockers remain',
-    );
+    expect(() => validate_source_invariants(source)).not.toThrow();
   });
 
   it('rejects approved_for_note when discussion is not closed', () => {

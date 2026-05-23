@@ -2,7 +2,7 @@
 
 ## 1. 文档目标
 
-本文档基于 `specs/implementation.md`，记录 P0 Markdown 主动学习闭环的 issue 拆分，并补充当前已确认的 P1 设计草案。
+本文档基于 `specs/prd.md`、`specs/workflow.md`、`specs/schema.md` 与 `specs/implementation.md`，记录从 P0/P1 到最终预期能力的 issue 拆分。
 
 P0 范围：
 
@@ -17,11 +17,11 @@ P0 不包含：
 - PDF 支持
 - 用户显式提供的 URL 导入
 - GitHub Trending / Hacker News 自动采集
-- Candidate 工作流
+- Candidate 工作流接入
 - 向量检索
 - Web UI
 
-当前确认的 P1 范围：
+P1 范围：
 
 ```text
 PDF file / Public URL -> Source -> Processed Artifacts -> Draft Understanding
@@ -39,9 +39,19 @@ P1 不包含：
 - 自动爬站 / 批量抓取 / 搜索发现
 - 登录态、付费墙或需要 session 的网页
 - JS 渲染兜底与浏览器自动化抓取
-- Candidate 工作流
+- Candidate 工作流接入
 - 向量检索
 - Web UI
+
+P2+ 范围用于覆盖最终预期能力，包括：
+
+- Candidate 候选池与自动采集
+- 飞书文档等主动输入扩展
+- 更严格的讨论收敛判定
+- Note 归档、版本化与相关关系治理
+- 向量索引与混合检索
+- 问答 fallback 到未确认材料并显式标注
+- 异步任务、重试与定时采集
 
 ## 2. Issue 列表
 
@@ -448,8 +458,8 @@ Markdown -> Source -> Processed Artifacts -> Draft Understanding
 #### Acceptance criteria
 
 - [ ] `origin.user_input_type` 支持 `markdown | pdf | url`
-- [ ] `ingest_type` 支持 `upload_markdown | upload_pdf | submit_url`
-- [ ] `content_type` 支持 `document | webpage`
+- [ ] `ingest_type` 支持 `upload_markdown | upload_pdf | input_url`
+- [ ] `content_type` 支持 `document | link`
 - [ ] `source ingest pdf <file>` 成功时创建 `ingested` Source 并保存 `raw/original.pdf`
 - [ ] `source ingest url <url>` 只接受显式提供的 `http | https` URL
 - [ ] URL ingest 成功时保存 `raw/original.url`
@@ -602,6 +612,591 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 - Issue 15
 - Issue 16
 
+---
+
+### Issue 18: 实现 Candidate domain schema/type
+
+- **Type**: AFK
+- **Blocked by**: Issue 1
+- **User stories covered**:
+  - 系统可以把自动采集内容表示为轻量候选对象
+  - Candidate 与 Source 在对象层保持清晰边界
+
+#### What to build
+
+实现 `Candidate` 的 domain schema、type、状态枚举与 invariant 校验，但暂不接入自动采集 workflow。该 issue 补齐 `specs/schema.md` 与 `specs/implementation.md` 对 Candidate 基础契约的要求。
+
+#### Acceptance criteria
+
+- [ ] 新增 `src/domain/candidate.ts`
+- [ ] 支持 `source_type = github_trending | hacker_news`
+- [ ] 支持状态：`new | recommended | dismissed | selected | converted`
+- [ ] 支持 score breakdown：`relevance`、`learning_value`、`novelty`、`discussability`
+- [ ] 校验每个 score 子项范围为 0-3
+- [ ] 校验 `score.total` 等于 breakdown 汇总
+- [ ] 校验 `status = converted` 时 `converted_source_id` 非空
+- [ ] 导出 `CandidateSchema`、`CandidateStatusSchema`、`parse_candidate`
+- [ ] 覆盖 domain 单元测试
+
+#### Blocked by
+
+- Issue 1
+
+---
+
+### Issue 19: Candidate 存储与只读查看
+
+- **Type**: AFK
+- **Blocked by**: Issue 18
+- **User stories covered**:
+  - 用户可以查看自动采集候选池
+  - 系统可以持久化 Candidate 并保留推荐状态
+
+#### What to build
+
+实现 Candidate 的文件系统存储、列表与查看能力。Candidate 仍不进入主知识层，不允许被 answer 直接检索。
+
+#### Acceptance criteria
+
+- [ ] 新增 `candidate-repo` 或等价 storage 模块
+- [ ] Candidate 保存到 `knowledge/candidates/YYYY/MM/cand_xxx.json`
+- [ ] 支持 `candidate list`
+- [ ] 支持 `candidate list --status <status>`
+- [ ] 支持 `candidate show <candidate_id>`
+- [ ] list 默认按 `collected_at desc`
+- [ ] 读写 JSON 时通过 `CandidateSchema` parse
+- [ ] 不把 Candidate 写入 `knowledge/index/`
+- [ ] 支持 `--json`
+- [ ] 覆盖 storage、workflow、CLI 测试
+
+#### Blocked by
+
+- Issue 18
+
+---
+
+### Issue 20: GitHub Trending / Hacker News 采集器
+
+- **Type**: AFK
+- **Blocked by**: Issue 19
+- **User stories covered**:
+  - 系统可以持续发现潜在高价值 AI 技术材料
+  - 自动采集内容先进入候选池，而不是直接进入学习流程
+
+#### What to build
+
+实现 GitHub Trending 与 Hacker News 的采集入口，将外部条目规范化为 Candidate 候选输入。采集器只生成候选内容，不创建 Source、不调用 Agent、不生成 Note。
+
+#### Acceptance criteria
+
+- [ ] 新增 GitHub Trending collector
+- [ ] 新增 Hacker News collector
+- [ ] collector 输出统一 Candidate 创建输入
+- [ ] Candidate 记录 title、summary、url、author、published_at、collected_at、tags、external_ref
+- [ ] 采集失败返回结构化错误，不产生半成品 Candidate
+- [ ] 外部请求可 mock，测试不依赖真实网络
+- [ ] 不采集 AI 主题以外的大量泛内容作为主路径
+- [ ] 不直接创建 Source
+- [ ] 不直接进入 Note 或 Index
+
+#### Blocked by
+
+- Issue 19
+
+---
+
+### Issue 21: Candidate 去重、过滤与评分推荐
+
+- **Type**: AFK
+- **Blocked by**: Issue 20
+- **User stories covered**:
+  - 用户不会被重复或低价值候选淹没
+  - 系统能解释候选项为什么值得学习
+
+#### What to build
+
+实现 Candidate 去重、规则过滤和评分推荐。推荐结果只影响 Candidate 状态，不自动进入正式学习流程。
+
+#### Acceptance criteria
+
+- [ ] 根据 canonical URL / external_ref / title slug 做去重
+- [ ] 重复 Candidate 不创建新的推荐项
+- [ ] 实现基础过滤规则，排除明显不相关内容
+- [ ] 实现 score breakdown 四项评分
+- [ ] 达到阈值后状态进入 `recommended`
+- [ ] 未达阈值或被过滤后状态进入 `dismissed`
+- [ ] score reason 说明推荐原因
+- [ ] 支持重新评分单个 Candidate
+- [ ] 覆盖 dedupe、filter、scoring 单元测试
+
+#### Blocked by
+
+- Issue 20
+
+---
+
+### Issue 22: Candidate 选中并转换为 Source
+
+- **Type**: HITL
+- **Blocked by**: Issue 21, Issue 2
+- **User stories covered**:
+  - 用户可以从推荐候选中选择真正想深入学习的材料
+  - 自动采集内容必须经过用户选择才能进入 Source 主流程
+
+#### What to build
+
+实现 `Candidate -> Source` 转换 workflow。用户选中推荐 Candidate 后创建对应 Source，并建立双向引用。
+
+#### Acceptance criteria
+
+- [ ] 支持 `ai-knowledge candidate select <candidate_id>`
+- [ ] 只允许 `recommended` Candidate 被选中
+- [ ] Candidate 状态流转：`recommended -> selected -> converted`
+- [ ] 创建 `Source.status = ingested`
+- [ ] Source 使用 `ingest_type = candidate_selected`
+- [ ] Source 使用 `origin.type = candidate`
+- [ ] 写入 `Source.origin_candidate_id`
+- [ ] 写入 `Candidate.converted_source_id`
+- [ ] 转换后输出 next action：`ai-knowledge source process <source_id>`
+- [ ] 不允许同一 Candidate 重复转换
+- [ ] 支持 `--json`
+
+#### Blocked by
+
+- Issue 21
+- Issue 2
+
+---
+
+### Issue 23: 自动采集候选池端到端验收
+
+- **Type**: HITL
+- **Blocked by**: Issue 20, Issue 21, Issue 22
+- **User stories covered**:
+  - 用户可以从自动发现的候选材料进入完整学习闭环
+  - 产品验证 Candidate 不会绕过讨论和确认门槛
+
+#### What to build
+
+准备自动采集链路的端到端验收，用 mocked collector 或稳定 fixture 跑通：采集、去重、评分、推荐、选中、转 Source，并复用既有 Source -> Note -> Answer 主链路。
+
+#### Acceptance criteria
+
+- [ ] 有 GitHub Trending fixture
+- [ ] 有 Hacker News fixture
+- [ ] 可以从空 `knowledge/` 生成 recommended Candidate
+- [ ] 用户选择后可以转换为 Source
+- [ ] 转换后的 Source 可继续 process / understand / discuss / approve / note / index / answer
+- [ ] 验收中确认 Candidate 不会直接进入 Index
+- [ ] 验收中确认未选中 Candidate 不会创建 Source
+
+#### Blocked by
+
+- Issue 20
+- Issue 21
+- Issue 22
+
+---
+
+### Issue 24: 导入飞书文档为 Source
+
+- **Type**: AFK
+- **Blocked by**: Issue 2
+- **User stories covered**:
+  - 用户可以把飞书文档作为主动学习资料导入
+  - 飞书文档进入与 Markdown/PDF/URL 相同的 Source 主链路
+
+#### What to build
+
+实现飞书文档导入 Source 的输入契约、CLI 与原始内容快照保存。该 issue 只支持用户显式提供的飞书文档，不做知识库搜索发现或批量同步。
+
+#### Acceptance criteria
+
+- [ ] 支持 `ai-knowledge source ingest lark-doc <doc_url_or_token>`
+- [ ] `ingest_type = lark_doc`
+- [ ] `origin.user_input_type = lark_doc`
+- [ ] Source 初始状态为 `ingested`
+- [ ] 保存文档 token / URL 元信息
+- [ ] 保存可追溯的 raw 快照或 raw metadata
+- [ ] 权限不足时返回结构化错误
+- [ ] 不支持批量同步整个知识库空间
+- [ ] 支持 `--json`
+
+#### Blocked by
+
+- Issue 2
+
+---
+
+### Issue 25: 处理飞书文档 Source 生成 processed artifacts
+
+- **Type**: AFK
+- **Blocked by**: Issue 24, Issue 3
+- **User stories covered**:
+  - 飞书文档可以转换成统一可理解文本证据
+  - 后续理解、讨论、Note 与问答链路复用现有能力
+
+#### What to build
+
+扩展 `source process` 支持飞书文档 Source，将文档结构转换为 `clean_text`、`segments`、`metadata`，并保留稳定 evidence locator。
+
+#### Acceptance criteria
+
+- [ ] `source process` 可识别 `lark_doc` Source
+- [ ] 生成 `processed/clean_text.md`
+- [ ] 生成 `processed/segments.json`
+- [ ] 生成 `processed/metadata.json`
+- [ ] segment locator 能定位到文档块、标题路径或等价位置
+- [ ] metadata 记录文档标题、所有者、更新时间等可用信息
+- [ ] 处理失败时 Source 进入 `failed` 并写 `last_error.stage = processing`
+- [ ] 不改变 understand / discuss / approve / note / answer 的主语义
+- [ ] 支持 `--json`
+
+#### Blocked by
+
+- Issue 24
+- Issue 3
+
+---
+
+### Issue 26: 讨论收敛规则检查器
+
+- **Type**: AFK
+- **Blocked by**: Issue 6, Issue 7
+- **User stories covered**:
+  - 用户确认前系统能独立判断讨论是否具备落笔条件
+  - Agent 的 ready 建议不能单独决定是否进入正式 Note
+
+#### What to build
+
+实现独立的 discussion convergence checker，用规则校验讨论摘要是否满足最小落笔条件，并接入 `source approve`。
+
+#### Acceptance criteria
+
+- [ ] 新增 convergence checker 模块
+- [ ] 检查 `confirmed_points` 非空
+- [ ] 检查至少存在价值判断或等价 `why_it_matters` 材料
+- [ ] 检查关键不确定性已进入 `open_questions` 或 `unresolved_issues`
+- [ ] 检查没有阻塞型 open question 时才允许 approve
+- [ ] `discussion_summary.ready_for_approval` 只是输入信号之一
+- [ ] `source approve` 使用 checker 返回明确失败原因
+- [ ] `/approve` 命令展示 checker 结果
+- [ ] 覆盖 convergence 单元测试
+
+#### Blocked by
+
+- Issue 6
+- Issue 7
+
+---
+
+### Issue 27: 相关笔记发现与确认
+
+- **Type**: HITL
+- **Blocked by**: Issue 10, Issue 11
+- **User stories covered**:
+  - 用户可以把新知识与既有笔记建立主题、概念或时间关联
+  - 相关笔记关系必须可解释、可确认，不由模型静默写入主真相
+
+#### What to build
+
+实现 related notes 候选发现、展示和确认机制。候选可由关键词/metadata/LLM 建议产生，但写入 `related_note_ids` 前需要明确规则或用户确认。
+
+#### Acceptance criteria
+
+- [ ] 能基于 approved Notes 生成 related note 候选
+- [ ] 候选包含关联理由
+- [ ] Note compose 时可携带 related note 候选上下文
+- [ ] 支持用户确认或拒绝 related note
+- [ ] 只把确认后的关系写入 `Note.related_note_ids`
+- [ ] `note render` 展示相关笔记
+- [ ] `answer` 可利用相关笔记扩展 approved Note 上下文
+- [ ] 覆盖相关性规则和确认 workflow 测试
+
+#### Blocked by
+
+- Issue 10
+- Issue 11
+
+---
+
+### Issue 28: Source / Note 归档工作流
+
+- **Type**: AFK
+- **Blocked by**: Issue 10
+- **User stories covered**:
+  - 用户可以把不再活跃的资料或笔记归档
+  - archived Note 不应继续作为当前主知识参与检索
+
+#### What to build
+
+实现 Source 与 Note 的 archive 命令和 workflow。归档不删除原始资料、不重写历史讨论，只改变活跃状态和检索可见性。
+
+#### Acceptance criteria
+
+- [ ] 支持 `ai-knowledge source archive <source_id>`
+- [ ] 支持 `ai-knowledge note archive <note_id>`
+- [ ] Source 只通过状态机进入 `archived`
+- [ ] Note 只通过状态机进入 `archived`
+- [ ] 归档不删除 raw、processed、discussion、note.md 或 note.json
+- [ ] archived Note 不进入主检索结果
+- [ ] archived Note 对历史引用仍可 show
+- [ ] 支持 `--json`
+- [ ] 覆盖 workflow、retrieval 测试
+
+#### Blocked by
+
+- Issue 10
+
+---
+
+### Issue 29: Note 版本化与 supersede 工作流
+
+- **Type**: HITL
+- **Blocked by**: Issue 10, Issue 26
+- **User stories covered**:
+  - 用户可以在核心结论变化时创建新版 Note
+  - 旧版 Note 保留历史价值，但不再代表当前主结论
+
+#### What to build
+
+实现 Note 新版本创建和 supersede workflow。仅当核心结论变化时创建新版本；普通措辞修改仍应更新结构化 Note 后重新 render，而不是新版本。
+
+#### Acceptance criteria
+
+- [ ] 支持创建新版 Note 的 workflow 或命令
+- [ ] 新版 Note `version = old.version + 1`
+- [ ] 新版 Note 继承 `root_note_id`
+- [ ] 新版 Note 写入 `supersedes_note_id`
+- [ ] 旧版 Note 状态流转为 `superseded`
+- [ ] 旧版 Note 写入 `superseded_by_note_id`
+- [ ] superseded Note 不进入当前主检索结果
+- [ ] 版本链可通过 `note show` 查看
+- [ ] 不允许无确认讨论直接创建新版 approved Note
+- [ ] 覆盖版本链 invariant 和 workflow 测试
+
+#### Blocked by
+
+- Issue 10
+- Issue 26
+
+---
+
+### Issue 30: Index Entry 生命周期与索引清理
+
+- **Type**: AFK
+- **Blocked by**: Issue 28, Issue 29
+- **User stories covered**:
+  - 主检索层只包含当前有效的 approved Note
+  - archived / superseded Note 不会污染后续问答
+
+#### What to build
+
+完善 Index Entry 生命周期管理，使 Note archive、supersede、re-index 时索引状态与 Note 状态保持一致。
+
+#### Acceptance criteria
+
+- [ ] `note index` 不接受 archived / superseded Note
+- [ ] Note archive 后对应 index entry 被移除或标记为非主检索
+- [ ] Note supersede 后旧版 index entry 被移除或标记为非主检索
+- [ ] 重新 index approved Note 时覆盖旧 index entry
+- [ ] retrieval 只返回当前 approved 且未归档、未 superseded 的 Note
+- [ ] index 清理失败返回结构化错误
+- [ ] 覆盖 retrieval 与 index lifecycle 测试
+
+#### Blocked by
+
+- Issue 28
+- Issue 29
+
+---
+
+### Issue 31: 向量索引契约与 embedding 生成
+
+- **Type**: AFK
+- **Blocked by**: Issue 10
+- **User stories covered**:
+  - 系统可以为 approved Note 建立语义检索入口
+  - `IndexEntry.vector_ref` 从预留字段变成可用引用
+
+#### What to build
+
+定义并实现 Note embedding 生成、向量文件或向量存储引用，以及 `IndexEntry.vector_ref` 的更新策略。该 issue 只负责生成与存储向量，不改变 answer 排序策略。
+
+#### Acceptance criteria
+
+- [ ] 定义 embedding provider 配置，API key 只能来自环境变量
+- [ ] 定义 vector artifact 或 vector store 引用格式
+- [ ] `note index` 可生成 embedding
+- [ ] `IndexEntry.vector_ref` 指向可读取的向量引用
+- [ ] embedding 输入只来自 approved Note 主真相字段
+- [ ] 不为 draft / archived / superseded Note 生成主向量索引
+- [ ] embedding 失败时不把 Note 标记为 approved 失败
+- [ ] 测试可 mock embedding provider
+
+#### Blocked by
+
+- Issue 10
+
+---
+
+### Issue 32: 关键词 / metadata / 向量混合检索
+
+- **Type**: AFK
+- **Blocked by**: Issue 31, Issue 30
+- **User stories covered**:
+  - 用户后续提问时能同时利用关键词命中和语义召回
+  - 多个相关 Note 能被综合排序，而不是只靠字符串包含
+
+#### What to build
+
+实现 hybrid retrieval，将关键词、metadata 和 vector similarity 合并排序，并保持只检索当前有效的 approved Note。
+
+#### Acceptance criteria
+
+- [ ] retrieval 支持 keyword score
+- [ ] retrieval 支持 metadata/tag score
+- [ ] retrieval 支持 vector similarity score
+- [ ] 定义可解释的合并排序策略
+- [ ] top-k 返回包含分数构成或 debug 信息
+- [ ] 只返回当前有效 approved Notes
+- [ ] 无 vector_ref 时可降级到 keyword/metadata，但必须显式记录降级
+- [ ] 覆盖 hybrid retrieval 测试 fixture
+
+#### Blocked by
+
+- Issue 31
+- Issue 30
+
+---
+
+### Issue 33: Answer fallback 到未确认材料并显式标注
+
+- **Type**: AFK
+- **Blocked by**: Issue 11, Issue 32
+- **User stories covered**:
+  - 当 approved Note 不足时，系统可以提示存在相关但未确认的材料
+  - 用户能区分“没有已确认知识”和“有材料但尚未沉淀为知识”
+
+#### What to build
+
+扩展 answer workflow，在 approved Notes 不足时按优先级补充相关 `discussion_summary`、processed artifacts 或 raw Source 摘要，并在回答中显式标注未确认属性。
+
+#### Acceptance criteria
+
+- [ ] answer 优先使用 approved Notes
+- [ ] approved Note 不足时可检索相关 Source / discussion_summary
+- [ ] processed/raw Source 只能作为 unconfirmed materials
+- [ ] 输出结构包含 `unconfirmed_materials`
+- [ ] Answer Agent prompt 明确区分 confirmed 与 unconfirmed
+- [ ] 当 approved Note 与 Source 冲突时默认以 approved Note 为准
+- [ ] 无 approved Note 但有相关 Source 时明确说明“存在相关材料，但尚未形成已确认知识”
+- [ ] 不把未确认材料写入主 index
+- [ ] 覆盖 fallback 和冲突处理测试
+
+#### Blocked by
+
+- Issue 11
+- Issue 32
+
+---
+
+### Issue 34: 本地异步任务与重试模型
+
+- **Type**: AFK
+- **Blocked by**: Issue 12
+- **User stories covered**:
+  - 长耗时处理可以后台执行并被查询状态
+  - 失败任务可以明确重试，而不是依赖用户手动猜测下一步
+
+#### What to build
+
+实现本地 job/task 模型，用于封装预处理、理解生成、Markdown 成稿、索引更新等可异步步骤。P0/P1 命令仍可保留同步模式，但应具备异步执行基础。
+
+#### Acceptance criteria
+
+- [ ] 定义 job schema 与状态：`queued | running | succeeded | failed | canceled`
+- [ ] job 记录 target object、operation、created_at、updated_at、last_error
+- [ ] 支持 `job list`
+- [ ] 支持 `job show <job_id>`
+- [ ] 支持 `job retry <job_id>`
+- [ ] process / understand / render / index 可作为 job operation
+- [ ] job 失败不破坏 Source / Note 主真相边界
+- [ ] 支持 `--json`
+- [ ] 覆盖 job storage 和 retry 测试
+
+#### Blocked by
+
+- Issue 12
+
+---
+
+### Issue 35: 定时自动采集与自动推进
+
+- **Type**: AFK
+- **Blocked by**: Issue 23, Issue 34
+- **User stories covered**:
+  - 系统可以定期发现新候选材料
+  - 自动流程只推进到候选推荐，不绕过用户选择和确认
+
+#### What to build
+
+实现定时采集和可配置自动推进策略。自动化只能覆盖采集、候选评分和非交互预处理等环节，不能绕过 Candidate 选择、讨论确认或 Note approval 门槛。
+
+#### Acceptance criteria
+
+- [ ] 支持配置采集频率
+- [ ] 定时运行 GitHub Trending / Hacker News collector
+- [ ] 自动执行 dedupe / scoring / recommendation
+- [ ] 可选将用户选中的 Source 自动排队 process
+- [ ] 不自动把 Candidate 转 Source
+- [ ] 不自动 approve Source
+- [ ] 不自动 approve Note
+- [ ] 采集任务失败可在 job 中查看
+- [ ] 覆盖 scheduler 和 safety gate 测试
+
+#### Blocked by
+
+- Issue 23
+- Issue 34
+
+---
+
+### Issue 36: 最终预期端到端验收套件
+
+- **Type**: HITL
+- **Blocked by**: Issue 25, Issue 27, Issue 30, Issue 33, Issue 35
+- **User stories covered**:
+  - 产品完整验证从自动发现到长期知识问答的闭环
+  - 所有关键门槛都能被回归测试或人工验收覆盖
+
+#### What to build
+
+建立覆盖最终预期能力的端到端验收套件，包含主动导入、自动采集、候选选择、讨论确认、版本治理、混合检索和 fallback 问答。
+
+#### Acceptance criteria
+
+- [ ] 覆盖 Markdown / PDF / URL / Lark Doc 主动导入 happy path
+- [ ] 覆盖 GitHub Trending / Hacker News 自动采集 fixture
+- [ ] 覆盖 Candidate 推荐与选中转 Source
+- [ ] 覆盖 discussion convergence checker
+- [ ] 覆盖 Note archive 与 supersede
+- [ ] 覆盖 related notes 确认
+- [ ] 覆盖 hybrid retrieval
+- [ ] 覆盖 answer fallback 到 unconfirmed materials
+- [ ] 验收中确认未确认材料不会进入主知识层
+- [ ] 验收中确认 archived / superseded Note 不进入当前主检索
+
+#### Blocked by
+
+- Issue 25
+- Issue 27
+- Issue 30
+- Issue 33
+- Issue 35
+
+---
+
 ## 3. Dependency Map
 
 ### P0
@@ -635,11 +1230,41 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 17 depends on 13, 14, 15, 16
 ```
 
+### P2+ / Final Expected Capability
+
+```text
+18 depends on 1
+19 depends on 18
+20 depends on 19
+21 depends on 20
+22 depends on 21, 2
+23 depends on 20, 21, 22
+
+24 depends on 2
+25 depends on 24, 3
+
+26 depends on 6, 7
+27 depends on 10, 11
+28 depends on 10
+29 depends on 10, 26
+30 depends on 28, 29
+
+31 depends on 10
+32 depends on 31, 30
+33 depends on 11, 32
+
+34 depends on 12
+35 depends on 23, 34
+36 depends on 25, 27, 30, 33, 35
+```
+
 ## 4. Notes
 
-- 当前 issue 拆分覆盖已完成的 P0 与当前确认的 P1 输入扩展范围。
+- P0 issue 拆分覆盖 Markdown 主动学习闭环。
 - P1 聚焦 PDF 主动导入与用户显式提供的公开 URL 导入，不改变下游知识主链路。
 - URL 导入不包含自动爬站、批量抓取、搜索发现、登录态页面或 JS 渲染兜底。
-- P2 自动采集相关命令和 Candidate workflow 暂不拆分。
-- 向量检索暂不拆分，仍放在后续阶段。
-- HITL issue 目前包括交互式讨论 REPL、P0 端到端验收与 P1 端到端验收。
+- P2+ issue 拆分覆盖最终预期能力，但仍应按阶段逐步实现，不应一次性混入 P0/P1。
+- Candidate 仍不进入主知识层；只有用户选择后转换为 Source，且经过讨论确认和 QA 的 approved Note 才能进入主检索。
+- 向量检索只增强 retrieval，不改变 `note.json` 作为正式知识主真相的边界。
+- Answer fallback 可以引用未确认材料，但必须显式标注，且不得把未确认材料写入主 index。
+- HITL issue 包括交互式讨论、候选选择、相关笔记确认、版本化判断和端到端验收。

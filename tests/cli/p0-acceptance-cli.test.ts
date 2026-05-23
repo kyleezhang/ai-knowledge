@@ -121,45 +121,20 @@ describe('P0 end-to-end acceptance CLI', () => {
     const discuss_output = discuss_harness.stdout.join('\n');
     expect(discuss_output).toContain('Source discussion started.');
     expect(discuss_output).toContain(assistant_reply);
-    expect(discuss_output).toContain(
-      `Ready for approval. Next: ai-knowledge source approve ${source_id}`,
-    );
+    expect(discuss_output).toContain('Source approved for note.');
+    expect(discuss_output).toContain(`ai-knowledge note compose ${source_id}`);
 
     const source_after_discuss = await get_source(source_id, { cwd });
-    expect(source_after_discuss.status).toBe('discussing');
+    expect(source_after_discuss.status).toBe('approved_for_note');
+    expect(source_after_discuss.discussion_summary.discussion_status).toBe(
+      'closed',
+    );
     expect(source_after_discuss.discussion_summary.ready_for_approval).toBe(
       true,
     );
     expect(source_after_discuss.discussion_summary.confirmed_points).toEqual([
       confirmed_point,
     ]);
-
-    let premature_compose_called = false;
-    const premature_compose = create_cli_harness(cwd, {
-      compose_note: async ({ agent_input }) => {
-        premature_compose_called = true;
-        return build_acceptance_note_candidate(agent_input);
-      },
-    });
-    await premature_compose.run(['note', 'compose', source_id]);
-    expect(premature_compose.exit_code).toBe(1);
-    expect(premature_compose.stderr.join('\n')).toContain(
-      'code: INVALID_INPUT',
-    );
-    expect(premature_compose_called).toBe(false);
-
-    const approve_source_harness = create_cli_harness(cwd);
-    await approve_source_harness.run([
-      'source',
-      'approve',
-      source_id,
-      '--json',
-    ]);
-    expect(JSON.parse(approve_source_harness.stdout[0])).toMatchObject({
-      ok: true,
-      data: { source: { status: 'approved_for_note' } },
-      next_actions: [{ command: `ai-knowledge note compose ${source_id}` }],
-    });
 
     const compose_harness = create_cli_harness(cwd, {
       compose_note: async ({ agent_input }) =>
