@@ -5,6 +5,8 @@ import {
   get_note_markdown,
   save_note,
 } from '../storage/note-repo.js';
+import { get_source } from '../storage/source-repo.js';
+import { read_processed_artifacts } from '../storage/artifact-store.js';
 import { note_lint, type NoteLintResult } from '../qa/note-lint.js';
 import { summarize_note, type NoteSummary } from './note-summary.js';
 import type { NextAction, WorkflowResult } from './types.js';
@@ -40,10 +42,13 @@ export async function lint_note_workflow(
     }
 
     const markdown = await get_note_markdown(note.id, context);
+    const source = await get_source(note.approval_context.source_id, context);
+    const artifacts = await read_processed_artifacts(source, context);
     const lint = note_lint({
       note,
       markdown,
       checked_at: (input.now ?? new Date()).toISOString(),
+      source_segments: artifacts.segments,
     });
     const updated_note = {
       ...note,

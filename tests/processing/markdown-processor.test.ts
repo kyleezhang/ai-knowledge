@@ -16,12 +16,24 @@ describe('markdown processor', () => {
         order: 1,
         heading_path: [],
         text: 'First paragraph.',
+        locator: {
+          ref: 'processed/segments.json#seg_0001',
+          source_kind: 'markdown',
+          position: 1,
+          heading_path: [],
+        },
       },
       {
         id: 'seg_0002',
         order: 2,
         heading_path: [],
         text: 'Second paragraph.',
+        locator: {
+          ref: 'processed/segments.json#seg_0002',
+          source_kind: 'markdown',
+          position: 2,
+          heading_path: [],
+        },
       },
     ]);
     expect(result.metadata.title).toBe('Fallback Title');
@@ -40,12 +52,24 @@ describe('markdown processor', () => {
         order: 1,
         heading_path: ['Main'],
         text: 'Intro.',
+        locator: {
+          ref: 'processed/segments.json#seg_0001',
+          source_kind: 'markdown',
+          position: 1,
+          heading_path: ['Main'],
+        },
       },
       {
         id: 'seg_0002',
         order: 2,
         heading_path: ['Main', 'Detail'],
         text: 'Detail body.',
+        locator: {
+          ref: 'processed/segments.json#seg_0002',
+          source_kind: 'markdown',
+          position: 2,
+          heading_path: ['Main', 'Detail'],
+        },
       },
     ]);
     expect(result.metadata.headings).toEqual([

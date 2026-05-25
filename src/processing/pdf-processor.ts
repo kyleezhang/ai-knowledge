@@ -20,6 +20,7 @@ export async function process_pdf(input: {
       parser.getText({ parseHyperlinks: true }),
     ]);
 
+    const page_by_heading = new Map<string, number>();
     const page_sections = text_result.pages
       .map((page) => {
         const page_text = normalize_document_text(page.text);
@@ -27,7 +28,9 @@ export async function process_pdf(input: {
           return null;
         }
 
-        return `## Page ${page.num}\n\n${page_text.trim()}`;
+        const heading = `Page ${page.num}`;
+        page_by_heading.set(heading, page.num);
+        return `## ${heading}\n\n${page_text.trim()}`;
       })
       .filter((page): page is string => page !== null)
       .join('\n\n');
@@ -39,6 +42,10 @@ export async function process_pdf(input: {
       metadata_overrides: {
         title: extract_pdf_title(info_result.info),
         page_count: info_result.total,
+      },
+      segment_locator_overrides: {
+        source_kind: 'pdf',
+        page_by_heading,
       },
     });
 

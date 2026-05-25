@@ -40,9 +40,9 @@ describe('note workflows', () => {
       cwd,
       source_id,
       now: new Date('2026-05-14T04:00:00.000Z'),
-      compose: async () => ({
+      compose: async ({ agent_input }) => ({
         ...note_candidate,
-        source_refs: [{ ...note_candidate.source_refs[0], source_id }],
+        source_refs: agent_input.source_refs,
       }),
     });
     const source = await get_source(source_id, { cwd });
@@ -85,10 +85,10 @@ describe('note workflows', () => {
     const result = await compose_note_workflow({
       cwd,
       source_id,
-      compose: async () => ({
+      compose: async ({ agent_input }) => ({
         ...note_candidate,
         conclusions: ['Unsupported conclusion'],
-        source_refs: [{ ...note_candidate.source_refs[0], source_id }],
+        source_refs: agent_input.source_refs,
       }),
     });
 
@@ -99,6 +99,32 @@ describe('note workflows', () => {
       );
   });
 
+  it('rejects note candidate evidence refs outside processed segment locators', async () => {
+    const cwd = await create_temp_dir();
+    const source_id = await create_approved_source(cwd);
+
+    const result = await compose_note_workflow({
+      cwd,
+      source_id,
+      compose: async ({ agent_input }) => ({
+        ...note_candidate,
+        source_refs: [
+          {
+            ...agent_input.source_refs[0],
+            evidence_refs: ['processed/segments.json#seg_9999'],
+          },
+        ],
+      }),
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.message).toContain(
+        'Note evidence_refs must come from processed segment locators',
+      );
+    }
+  });
+
   it('returns partial failure when Source update fails after Note creation', async () => {
     const cwd = await create_temp_dir();
     const source_id = await create_approved_source(cwd);
@@ -106,9 +132,9 @@ describe('note workflows', () => {
     const result = await compose_note_workflow({
       cwd,
       source_id,
-      compose: async () => ({
+      compose: async ({ agent_input }) => ({
         ...note_candidate,
-        source_refs: [{ ...note_candidate.source_refs[0], source_id }],
+        source_refs: agent_input.source_refs,
       }),
       save_source_fn: async () => {
         throw new Error('save source failed');
@@ -125,9 +151,9 @@ describe('note workflows', () => {
     const compose = await compose_note_workflow({
       cwd,
       source_id,
-      compose: async () => ({
+      compose: async ({ agent_input }) => ({
         ...note_candidate,
-        source_refs: [{ ...note_candidate.source_refs[0], source_id }],
+        source_refs: agent_input.source_refs,
       }),
     });
     if (!compose.ok) throw new Error(compose.error.message);

@@ -1,4 +1,9 @@
 import type { Note } from '../domain/note.js';
+import {
+  evidence_locator_ref_exists,
+  is_evidence_locator_ref,
+  type ProcessedSegment,
+} from '../storage/artifact-store.js';
 
 export const required_note_markdown_sections = [
   '## 来源概览',
@@ -20,9 +25,10 @@ export function note_lint(input: {
   note: Note;
   markdown: string;
   checked_at: string;
+  source_segments?: ProcessedSegment[];
 }): NoteLintResult {
   const failures = [
-    ...required_field_failures(input.note),
+    ...required_field_failures(input.note, input.source_segments),
     ...markdown_failures(input.markdown),
   ];
   const empty_sections = required_note_markdown_sections.filter(
@@ -43,10 +49,35 @@ export function note_lint(input: {
   };
 }
 
-function required_field_failures(note: Note): string[] {
+function required_field_failures(
+  note: Note,
+  source_segments?: ProcessedSegment[],
+): string[] {
   const failures: string[] = [];
   if (note.source_refs.length === 0) {
     failures.push('source_refs is required');
+  }
+  for (const source_ref of note.source_refs) {
+    if (source_ref.evidence_refs.length === 0) {
+      failures.push('source_refs.evidence_refs is required');
+      continue;
+    }
+    for (const evidence_ref of source_ref.evidence_refs) {
+      if (!is_evidence_locator_ref(evidence_ref)) {
+        failures.push(
+          `invalid evidence_ref: ${evidence_ref} must use processed/segments.json#<segment_id>`,
+        );
+        continue;
+      }
+      if (
+        source_segments !== undefined &&
+        !evidence_locator_ref_exists(source_segments, evidence_ref)
+      ) {
+        failures.push(
+          `evidence_ref does not exist in processed segments: ${evidence_ref}`,
+        );
+      }
+    }
   }
   if (note.conclusions.length === 0) {
     failures.push('conclusions is required');

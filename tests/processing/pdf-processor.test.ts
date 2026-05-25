@@ -53,12 +53,26 @@ describe('pdf processor', () => {
         order: 1,
         heading_path: ['Page 1'],
         text: 'Page one.',
+        locator: {
+          ref: 'processed/segments.json#seg_0001',
+          source_kind: 'pdf',
+          position: 1,
+          page: 1,
+          heading_path: ['Page 1'],
+        },
       },
       {
         id: 'seg_0002',
         order: 2,
         heading_path: ['Page 2'],
         text: 'Page two.',
+        locator: {
+          ref: 'processed/segments.json#seg_0002',
+          source_kind: 'pdf',
+          position: 2,
+          page: 2,
+          heading_path: ['Page 2'],
+        },
       },
     ]);
     expect(result.metadata).toMatchObject({

@@ -18,6 +18,10 @@ import type { StorageConfig } from '../storage/config.js';
 import { StorageError } from '../storage/errors.js';
 import { create_note, note_exists } from '../storage/note-repo.js';
 import { get_source, save_source } from '../storage/source-repo.js';
+import {
+  evidence_locator_refs_from_segments,
+  read_processed_artifacts,
+} from '../storage/artifact-store.js';
 import { render_note_markdown } from '../notes/render-markdown.js';
 import { summarize_note, type NoteSummary } from './note-summary.js';
 import { summarize_source, type SourceSummary } from './source-summary.js';
@@ -63,7 +67,11 @@ export async function compose_note_workflow(
     }
 
     const timestamp = (input.now ?? new Date()).toISOString();
-    const source_refs = build_source_refs(source);
+    const artifacts = await read_processed_artifacts(source, context);
+    const source_refs = build_source_refs(source, artifacts.segments);
+    const allowed_evidence_refs = new Set(
+      source_refs.flatMap((ref) => ref.evidence_refs),
+    );
     const llm_client =
       input.llm_client ?? create_llm_client({}, input.messages_api);
     const compose = input.compose ?? note_agent;
@@ -83,6 +91,17 @@ export async function compose_note_workflow(
     );
     if (unsupported.length > 0) {
       return invalid_input('Note conclusions must come from confirmed_points.');
+    }
+
+    const invalid_evidence_refs = candidate.source_refs.flatMap((ref) =>
+      ref.evidence_refs.filter(
+        (evidence_ref) => !allowed_evidence_refs.has(evidence_ref),
+      ),
+    );
+    if (invalid_evidence_refs.length > 0) {
+      return invalid_input(
+        `Note evidence_refs must come from processed segment locators: ${invalid_evidence_refs.join(', ')}`,
+      );
     }
 
     const note_id = await create_available_note_id({
@@ -173,13 +192,16 @@ export async function compose_note_workflow(
   }
 }
 
-function build_source_refs(source: Source): SourceRef[] {
+function build_source_refs(
+  source: Source,
+  segments: Parameters<typeof evidence_locator_refs_from_segments>[0],
+): SourceRef[] {
   return [
     {
       source_id: source.id,
       source_title: source.title,
       source_url: source.url,
-      evidence_refs: Object.values(source.processing_artifacts),
+      evidence_refs: evidence_locator_refs_from_segments(segments),
     },
   ];
 }

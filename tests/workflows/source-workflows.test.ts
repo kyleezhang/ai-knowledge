@@ -1,7 +1,8 @@
 import { readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { UnderstandAgentInput } from '../../src/agents/understand-agent.js';
+import type { DocumentProcessingResult } from '../../src/processing/document-processor.js';
 import { read_discussion_messages } from '../../src/storage/discussion-log.js';
 import { get_source } from '../../src/storage/source-repo.js';
 import { approve_source_workflow } from '../../src/workflows/approve-source-workflow.js';
@@ -22,7 +23,7 @@ import {
 const example_article_html =
   '<html><head><title>Example Article</title></head><body><article><h1>Example Article</h1><p>Read <a href="/docs">docs</a>.</p></article></body></html>';
 
-const fake_pdf_processed = {
+const fake_pdf_processed: DocumentProcessingResult = {
   clean_text: '## Page 1\n\nPDF body.\n',
   segments: [
     {
@@ -30,6 +31,13 @@ const fake_pdf_processed = {
       order: 1,
       heading_path: ['Page 1'],
       text: 'PDF body.',
+      locator: {
+        ref: 'processed/segments.json#seg_0001',
+        source_kind: 'pdf',
+        position: 1,
+        page: 1,
+        heading_path: ['Page 1'],
+      },
     },
   ],
   metadata: {
@@ -42,7 +50,7 @@ const fake_pdf_processed = {
   },
 };
 
-const fake_url_processed = {
+const fake_url_processed: DocumentProcessingResult = {
   clean_text: '# Example Article\n\nRead [docs](https://example.com/docs).\n',
   segments: [
     {
@@ -50,6 +58,13 @@ const fake_url_processed = {
       order: 1,
       heading_path: ['Example Article'],
       text: 'Read [docs](https://example.com/docs).',
+      locator: {
+        ref: 'processed/segments.json#seg_0001',
+        source_kind: 'url',
+        position: 1,
+        heading_path: ['Example Article'],
+        section: 'example-article',
+      },
     },
   ],
   metadata: {
@@ -68,6 +83,10 @@ async function fetch_html_fixture(): Promise<string> {
 
 async function reject_fetch_fixture(): Promise<string> {
   throw new Error('auth required');
+}
+
+async function empty_fetch_fixture(): Promise<string> {
+  return '   ';
 }
 
 async function process_pdf_fixture(): Promise<typeof fake_pdf_processed> {
@@ -117,6 +136,9 @@ function html_raw_path(source_id: string, cwd: string): string {
 }
 
 describe('source workflows', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
   it('ingests Markdown and returns a process next action', async () => {
     const cwd = await create_temp_dir();
     const file_path = await write_markdown_fixture(
@@ -178,7 +200,7 @@ describe('source workflows', () => {
     ]);
   });
 
-  it('ingests a public URL and returns a process next action', async () => {
+  it('ingests a public URL, saves frozen HTML, and returns a process next action', async () => {
     const cwd = await create_temp_dir();
 
     const result = await ingest_url_workflow({
@@ -196,6 +218,10 @@ describe('source workflows', () => {
     expect(result.data.source_id).toBe('src_20260514_input_url_article');
     expect(result.data.source.ingest_type).toBe('input_url');
     expect(result.data.source.content_type).toBe('link');
+    expect(result.data.source.processing_artifacts).toEqual({});
+    expect(
+      await readFile(html_raw_path(result.data.source_id, cwd), 'utf8'),
+    ).toBe(example_article_html);
     expect(result.next_actions).toEqual([
       {
         label: 'Process source',
@@ -204,21 +230,86 @@ describe('source workflows', () => {
     ]);
   });
 
-  it('does not create a Source when URL fetch fails after a valid public URL', async () => {
+  it('does not create a Source when URL import input is unsupported', async () => {
     const cwd = await create_temp_dir();
 
-    const result = await ingest_url_workflow({
-      url: 'https://example.com/private',
-      cwd,
-      fetch_html: reject_fetch_fixture,
-    });
+    const attempts = [
+      ingest_url_workflow({ url: 'not-a-url', cwd }),
+      ingest_url_workflow({ url: 'file:///tmp/page.html', cwd }),
+      ingest_url_workflow({ url: 'http://localhost/article', cwd }),
+      ingest_url_workflow({ url: 'https://example.internal/article', cwd }),
+      ingest_url_workflow({
+        url: 'https://example.com/private',
+        cwd,
+        fetch_html: reject_fetch_fixture,
+      }),
+      ingest_url_workflow({
+        url: 'https://example.com/empty',
+        cwd,
+        fetch_html: empty_fetch_fixture,
+      }),
+    ];
 
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      return;
+    for (const attempt of attempts) {
+      const result = await attempt;
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('INVALID_INPUT');
+      }
     }
 
-    expect(result.error.code).toBe('INVALID_INPUT');
+    await expect(
+      readdir(path.join(cwd, 'knowledge', 'sources')),
+    ).rejects.toThrow();
+  });
+
+  it('does not create a Source when public fetch returns non-HTML or private redirect', async () => {
+    const cwd = await create_temp_dir();
+    const make_response = (input: {
+      url: string;
+      content_type: string;
+      body: string;
+    }) => {
+      const response = new Response(input.body, {
+        status: 200,
+        headers: { 'content-type': input.content_type },
+      });
+      Object.defineProperty(response, 'url', { value: input.url });
+      return response;
+    };
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        make_response({
+          url: 'https://example.com/file.json',
+          content_type: 'application/json',
+          body: '{}',
+        }),
+      ),
+    );
+    const non_html = await ingest_url_workflow({
+      url: 'https://example.com/file.json',
+      cwd,
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        make_response({
+          url: 'http://127.0.0.1/article',
+          content_type: 'text/html',
+          body: '<html><body>private</body></html>',
+        }),
+      ),
+    );
+    const private_redirect = await ingest_url_workflow({
+      url: 'https://example.com/redirect',
+      cwd,
+    });
+
+    expect(non_html.ok).toBe(false);
+    expect(private_redirect.ok).toBe(false);
     await expect(
       readdir(path.join(cwd, 'knowledge', 'sources')),
     ).rejects.toThrow();
@@ -478,6 +569,40 @@ describe('source workflows', () => {
     await expect(
       readdir(path.dirname(pdf_raw_path(source.id, cwd))),
     ).resolves.toEqual([]);
+  });
+
+  it('marks URL Source failed when raw HTML snapshot is missing', async () => {
+    const cwd = await create_temp_dir();
+    const ingest_result = await ingest_url_workflow({
+      url: 'https://example.com/article',
+      cwd,
+      now: new Date('2026-05-14T00:00:00.000Z'),
+      fetch_html: fetch_html_fixture,
+    });
+    expect(ingest_result.ok).toBe(true);
+    if (!ingest_result.ok) {
+      return;
+    }
+
+    await rm(html_raw_path(ingest_result.data.source_id, cwd));
+
+    const result = await process_source_workflow({
+      cwd,
+      source_id: ingest_result.data.source_id,
+      now: new Date('2026-05-14T01:10:00.000Z'),
+      process_url: process_url_fixture,
+    });
+    const source = await get_source(ingest_result.data.source_id, { cwd });
+
+    expect(result.ok).toBe(false);
+    expect(source.status).toBe('failed');
+    expect(source.last_error?.stage).toBe('processing');
+    await expect(
+      readdir(path.join(cwd, 'knowledge', 'notes')),
+    ).rejects.toThrow();
+    await expect(
+      readdir(path.join(cwd, 'knowledge', 'index')),
+    ).rejects.toThrow();
   });
 
   it('marks Source failed when processor fails', async () => {

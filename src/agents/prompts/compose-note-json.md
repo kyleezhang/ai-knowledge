@@ -12,7 +12,7 @@
 
 # Rules
 
-`conclusions` 只能来自 `discussion_summary.confirmed_points`，`source_refs` 只能来自输入。
+`conclusions` 只能来自 `discussion_summary.confirmed_points`，`source_refs` 只能来自输入。`source_refs[].evidence_refs` 必须逐字选择输入 Source Refs 中提供的 `processed/segments.json#<segment_id>`，不得生成 raw path、artifact-level path 或自造 locator。
 
 # Do Not
 
@@ -30,7 +30,7 @@
 - `current_understanding`: string
 - `open_questions`: string[]，没有则输出 `[]`
 - `related_note_ids`: string[]，没有则输出 `[]`
-- `source_refs`: SourceRef[]，必须来自输入 Source Refs
+- `source_refs`: SourceRef[]，必须来自输入 Source Refs，且 `evidence_refs` 必须是输入中已有的 processed segment locators
 
 最小示例：
 

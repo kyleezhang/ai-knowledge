@@ -31,6 +31,7 @@ describe('index repo', () => {
     expect(entry.vector_ref).toBeNull();
     expect(entry.note_id).toBe('note_20260514_test-note');
     expect(entry.summary).toBe('Confirmed conclusion');
+    expect(entry.tags).toEqual(['seg_0001']);
   });
 
   it('rejects indexing non-approved notes', () => {

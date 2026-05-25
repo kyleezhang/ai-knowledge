@@ -23,12 +23,116 @@ export type ProcessedArtifactPaths = {
   metadata: string;
 };
 
-export const ProcessedSegmentSchema = z.object({
-  id: z.string(),
-  order: z.number().int().positive(),
+export const PROCESSED_SEGMENTS_ARTIFACT_PATH = 'processed/segments.json';
+
+export const ProcessedSegmentLocatorSchema = z.object({
+  ref: z.string(),
+  source_kind: z.enum(['markdown', 'pdf', 'url']),
+  position: z.number().int().positive(),
+  page: z.number().int().positive().optional(),
   heading_path: z.array(z.string()),
-  text: z.string(),
+  section: z.string().optional(),
 });
+
+export const ProcessedSegmentSchema = z
+  .object({
+    id: z.string(),
+    order: z.number().int().positive(),
+    heading_path: z.array(z.string()),
+    text: z.string(),
+    locator: ProcessedSegmentLocatorSchema,
+  })
+  .superRefine((segment, ctx) => {
+    if (segment.locator.ref !== build_evidence_locator_ref(segment.id)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['locator', 'ref'],
+        message: 'locator.ref must match processed segment id',
+      });
+    }
+    if (segment.locator.position !== segment.order) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['locator', 'position'],
+        message: 'locator.position must match segment order',
+      });
+    }
+    if (!arrays_equal(segment.locator.heading_path, segment.heading_path)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['locator', 'heading_path'],
+        message: 'locator.heading_path must match segment heading_path',
+      });
+    }
+  });
+
+export const EvidenceLocatorRefSchema = z
+  .string()
+  .regex(
+    /^processed\/segments\.json#seg_\d{4}$/u,
+    'evidence ref must use processed/segments.json#<segment_id>',
+  );
+
+export type EvidenceLocatorRef = z.infer<typeof EvidenceLocatorRefSchema>;
+
+export function build_evidence_locator_ref(
+  segment_id: string,
+): EvidenceLocatorRef {
+  return EvidenceLocatorRefSchema.parse(
+    `${PROCESSED_SEGMENTS_ARTIFACT_PATH}#${segment_id}`,
+  );
+}
+
+export function parse_evidence_locator_ref(ref: string): {
+  artifact_path: typeof PROCESSED_SEGMENTS_ARTIFACT_PATH;
+  segment_id: string;
+} {
+  const parsed = EvidenceLocatorRefSchema.safeParse(ref);
+  if (!parsed.success) {
+    throw new Error(
+      'evidence ref must use processed/segments.json#<segment_id>',
+    );
+  }
+
+  return {
+    artifact_path: PROCESSED_SEGMENTS_ARTIFACT_PATH,
+    segment_id: parsed.data.slice(
+      `${PROCESSED_SEGMENTS_ARTIFACT_PATH}#`.length,
+    ),
+  };
+}
+
+export function is_evidence_locator_ref(
+  ref: string,
+): ref is EvidenceLocatorRef {
+  return EvidenceLocatorRefSchema.safeParse(ref).success;
+}
+
+export function evidence_locator_refs_from_segments(
+  segments: ProcessedSegment[],
+): EvidenceLocatorRef[] {
+  return segments.map((segment) => segment.locator.ref);
+}
+
+export function evidence_locator_ref_exists(
+  segments: ProcessedSegment[],
+  ref: string,
+): boolean {
+  if (!is_evidence_locator_ref(ref)) {
+    return false;
+  }
+  const { segment_id } = parse_evidence_locator_ref(ref);
+  return segments.some(
+    (segment) => segment.id === segment_id || segment.locator.ref === ref,
+  );
+}
+
+function arrays_equal(left: string[], right: string[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((item, index) => item === right[index])
+  );
+}
 
 export const ProcessedMetadataSchema = z.object({
   title: z.string(),
@@ -168,7 +272,7 @@ export async function write_processed_artifacts(
 ): Promise<ProcessedArtifactPaths> {
   const artifacts: ProcessedArtifactPaths = {
     clean_text: 'processed/clean_text.md',
-    segments: 'processed/segments.json',
+    segments: PROCESSED_SEGMENTS_ARTIFACT_PATH,
     metadata: 'processed/metadata.json',
   };
 
@@ -185,13 +289,13 @@ export async function write_processed_artifacts(
     await write_json_artifact(
       input.source.id,
       artifacts.segments,
-      input.segments,
+      z.array(ProcessedSegmentSchema).parse(input.segments),
       context,
     );
     await write_json_artifact(
       input.source.id,
       artifacts.metadata,
-      input.metadata,
+      ProcessedMetadataSchema.parse(input.metadata),
       context,
     );
   } catch (error) {

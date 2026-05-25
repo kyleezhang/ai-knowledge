@@ -59,6 +59,13 @@ async function process_pdf_fixture(): Promise<DocumentProcessingResult> {
         order: 1,
         heading_path: ['Page 1'],
         text: 'PDF body.',
+        locator: {
+          ref: 'processed/segments.json#seg_0001',
+          source_kind: 'pdf',
+          position: 1,
+          page: 1,
+          heading_path: ['Page 1'],
+        },
       },
     ],
     metadata: {
@@ -82,27 +89,37 @@ async function process_url_source(
   await process_source_workflow({
     cwd,
     source_id,
-    process_url: () => ({
-      clean_text:
-        '# Example Article\n\nRead [docs](https://example.com/docs).\n',
-      segments: [
-        {
-          id: 'seg_0001',
-          order: 1,
-          heading_path: ['Example Article'],
-          text: 'Read [docs](https://example.com/docs).',
-        },
-      ],
-      metadata: {
-        title: 'Example Article',
-        headings: [{ level: 1, title: 'Example Article' }],
-        links: [{ text: 'docs', url: 'https://example.com/docs' }],
-        segment_count: 1,
-        processed_at: '2026-05-14T01:10:00.000Z',
-        source_url: 'https://example.com/article',
-      },
-    }),
+    process_url: process_url_fixture,
   });
+}
+
+function process_url_fixture(): DocumentProcessingResult {
+  return {
+    clean_text: '# Example Article\n\nRead [docs](https://example.com/docs).\n',
+    segments: [
+      {
+        id: 'seg_0001',
+        order: 1,
+        heading_path: ['Example Article'],
+        text: 'Read [docs](https://example.com/docs).',
+        locator: {
+          ref: 'processed/segments.json#seg_0001',
+          source_kind: 'url',
+          position: 1,
+          heading_path: ['Example Article'],
+          section: 'example-article',
+        },
+      },
+    ],
+    metadata: {
+      title: 'Example Article',
+      headings: [{ level: 1, title: 'Example Article' }],
+      links: [{ text: 'docs', url: 'https://example.com/docs' }],
+      segment_count: 1,
+      processed_at: '2026-05-14T01:10:00.000Z',
+      source_url: 'https://example.com/article',
+    },
+  };
 }
 
 async function understand_with_capture(
@@ -560,6 +577,57 @@ describe('source CLI', () => {
           },
         },
       },
+    });
+  });
+
+  it('supports JSON output for URL ingest and process', async () => {
+    const cwd = await create_temp_dir();
+    const ingest_harness = create_cli_harness(cwd, {
+      fetch_html: fetch_html_fixture,
+    });
+    await ingest_harness.run([
+      'source',
+      'ingest',
+      'url',
+      'https://example.com/article',
+      '--json',
+    ]);
+    const source_id = source_id_from_output(ingest_harness.stdout[0]);
+
+    expect(JSON.parse(ingest_harness.stdout[0])).toMatchObject({
+      ok: true,
+      data: {
+        source_id,
+        source: {
+          ingest_type: 'input_url',
+          content_type: 'link',
+          status: 'ingested',
+        },
+      },
+      next_actions: [{ command: `ai-knowledge source process ${source_id}` }],
+    });
+
+    const process_harness = create_cli_harness(cwd, {
+      process_url: process_url_fixture,
+    });
+    await process_harness.run(['source', 'process', source_id, '--json']);
+
+    expect(JSON.parse(process_harness.stdout[0])).toMatchObject({
+      ok: true,
+      data: {
+        source: {
+          ingest_type: 'input_url',
+          status: 'processed',
+          processing_artifacts: {
+            clean_text: 'processed/clean_text.md',
+            segments: 'processed/segments.json',
+            metadata: 'processed/metadata.json',
+          },
+        },
+      },
+      next_actions: [
+        { command: `ai-knowledge source understand ${source_id}` },
+      ],
     });
   });
 
@@ -1164,6 +1232,12 @@ function create_cli_harness(
       source_title: string;
       processed_at: string;
     }) => Promise<DocumentProcessingResult>;
+    process_url?: (input: {
+      raw_html: string;
+      source_title: string;
+      source_url: string;
+      processed_at: string;
+    }) => DocumentProcessingResult;
   } = {},
 ): {
   stdout: string[];
@@ -1199,6 +1273,7 @@ function create_cli_harness(
         repl_input: options.repl_input,
         fetch_html: options.fetch_html,
         process_pdf: options.process_pdf,
+        process_url: options.process_url,
       }).parseAsync(['node', 'ai-knowledge', ...args]);
     },
   };

@@ -26,6 +26,12 @@ const agent_input: UnderstandAgentInput = {
       order: 1,
       heading_path: ['Test Source'],
       text: 'Body text.',
+      locator: {
+        ref: 'processed/segments.json#seg_0001',
+        source_kind: 'markdown',
+        position: 1,
+        heading_path: ['Test Source'],
+      },
     },
   ],
   clean_text_summary: '# Test Source\n\nBody text.\n',

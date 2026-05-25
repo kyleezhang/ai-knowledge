@@ -36,6 +36,39 @@ describe('note lint', () => {
     expect(result.quality_checks.source_links_present).toBe(false);
   });
 
+  it('fails when evidence refs are missing or do not use processed segment locators', () => {
+    const note = create_test_note({
+      source_refs: [
+        {
+          source_id: 'src_20260514_upload_markdown_test-source',
+          source_title: 'Test Source',
+          source_url: null,
+          evidence_refs: [],
+        },
+        {
+          source_id: 'src_20260514_upload_markdown_test-source',
+          source_title: 'Test Source',
+          source_url: null,
+          evidence_refs: ['processed/segments.json', 'raw/original.md#intro'],
+        },
+      ],
+    });
+    const result = note_lint({
+      note,
+      markdown: render_note_markdown(note),
+      checked_at: '2026-05-14T00:00:00.000Z',
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.failures).toEqual(
+      expect.arrayContaining([
+        'source_refs.evidence_refs is required',
+        'invalid evidence_ref: processed/segments.json must use processed/segments.json#<segment_id>',
+        'invalid evidence_ref: raw/original.md#intro must use processed/segments.json#<segment_id>',
+      ]),
+    );
+  });
+
   it('fails when conclusions are empty', () => {
     const note = create_test_note({ conclusions: [] });
     const result = note_lint({

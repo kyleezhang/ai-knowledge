@@ -45,7 +45,7 @@ function build_tags(note: Note): string[] {
   return Array.from(
     new Set(
       note.source_refs.flatMap((ref) =>
-        ref.evidence_refs.map((item) => item.split('/')[0] ?? item),
+        ref.evidence_refs.map((item) => item.split('#')[1] ?? item),
       ),
     ),
   ).filter((item) => item.length > 0);

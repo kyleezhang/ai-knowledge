@@ -72,6 +72,12 @@ export function create_program(
       source_title: string;
       processed_at: string;
     }) => Promise<DocumentProcessingResult>;
+    process_url?: (input: {
+      raw_html: string;
+      source_title: string;
+      source_url: string;
+      processed_at: string;
+    }) => DocumentProcessingResult;
   } = {},
 ): Command {
   const io = input.io ?? default_io;
@@ -216,6 +222,7 @@ export function create_program(
         source_id,
         cwd: input.cwd,
         process_pdf: input.process_pdf,
+        process_url: input.process_url,
       });
 
       if (options.json) {

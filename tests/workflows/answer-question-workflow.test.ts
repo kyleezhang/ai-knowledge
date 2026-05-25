@@ -57,16 +57,21 @@ describe('answer question workflow', () => {
     const result = await answer_question_workflow({
       cwd,
       question: 'agent memory',
-      answer: async ({ agent_input }) => ({
-        conclusion: 'Agent memory helps.',
-        cited_notes: agent_input.approved_notes.map((item) => ({
-          note_id: item.id,
-          title: item.title,
-          relevant_points: item.conclusions,
-        })),
-        unconfirmed_materials: [],
-        limitations: [],
-      }),
+      answer: async ({ agent_input }) => {
+        expect(
+          agent_input.approved_notes[0].source_refs[0].evidence_refs,
+        ).toEqual(['processed/segments.json#seg_0001']);
+        return {
+          conclusion: 'Agent memory helps.',
+          cited_notes: agent_input.approved_notes.map((item) => ({
+            note_id: item.id,
+            title: item.title,
+            relevant_points: item.conclusions,
+          })),
+          unconfirmed_materials: [],
+          limitations: [],
+        };
+      },
     });
 
     expect(result.ok).toBe(true);

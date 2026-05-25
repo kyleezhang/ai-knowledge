@@ -156,9 +156,26 @@ describe('source repo', () => {
         source,
         clean_text: '# Original\n\nKeep this exact content.\n',
         segments: [
-          { id: 'seg_0001', order: 1, heading_path: [], text: 'Body' },
+          {
+            id: 'seg_0001',
+            order: 1,
+            heading_path: [],
+            text: 'Body',
+            locator: {
+              ref: 'processed/segments.json#seg_0001',
+              source_kind: 'markdown',
+              position: 1,
+              heading_path: [],
+            },
+          },
         ],
-        metadata: { title: 'Original' },
+        metadata: {
+          title: 'Original',
+          headings: [{ level: 1, title: 'Original' }],
+          links: [],
+          segment_count: 1,
+          processed_at: '2026-05-14T00:00:00.000Z',
+        },
       },
       { cwd },
     );
@@ -213,6 +230,12 @@ describe('source repo', () => {
             order: 1,
             heading_path: ['Title'],
             text: 'Body.',
+            locator: {
+              ref: 'processed/segments.json#seg_0001',
+              source_kind: 'markdown',
+              position: 1,
+              heading_path: ['Title'],
+            },
           },
         ],
         metadata: {
@@ -234,6 +257,12 @@ describe('source repo', () => {
           order: 1,
           heading_path: ['Title'],
           text: 'Body.',
+          locator: {
+            ref: 'processed/segments.json#seg_0001',
+            source_kind: 'markdown',
+            position: 1,
+            heading_path: ['Title'],
+          },
         },
       ],
       metadata: {
@@ -264,19 +293,17 @@ describe('source repo', () => {
       'Failed to read processed artifacts',
     );
 
-    await write_processed_artifacts(
-      {
-        source,
-        clean_text: 'Body',
-        segments: [{ bad: 'shape' }],
-        metadata: {},
-      },
-      { cwd },
-    );
-
-    await expect(read_processed_artifacts(source, { cwd })).rejects.toThrow(
-      'Failed to read processed artifacts',
-    );
+    await expect(
+      write_processed_artifacts(
+        {
+          source,
+          clean_text: 'Body',
+          segments: [{ bad: 'shape' }],
+          metadata: {},
+        },
+        { cwd },
+      ),
+    ).rejects.toThrow('Failed to write processed artifacts');
   });
 
   it('rejects path traversal when writing artifacts', async () => {
