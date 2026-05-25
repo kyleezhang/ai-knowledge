@@ -1,4 +1,4 @@
-import { readdir, rm, writeFile } from 'node:fs/promises';
+import { readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { UnderstandAgentInput } from '../../src/agents/understand-agent.js';
@@ -449,6 +449,37 @@ describe('source workflows', () => {
     expect(source.last_error?.stage).toBe('processing');
   });
 
+  it('marks Source failed when raw PDF is missing', async () => {
+    const cwd = await create_temp_dir();
+    const file_path = await write_pdf_fixture(cwd, 'paper.pdf');
+    const ingest_result = await ingest_pdf_workflow({
+      file_path,
+      cwd,
+      now: new Date('2026-05-14T00:00:00.000Z'),
+    });
+    expect(ingest_result.ok).toBe(true);
+    if (!ingest_result.ok) {
+      return;
+    }
+
+    await rm(pdf_raw_path(ingest_result.data.source_id, cwd));
+
+    const result = await process_source_workflow({
+      cwd,
+      source_id: ingest_result.data.source_id,
+      now: new Date('2026-05-14T01:00:00.000Z'),
+      process_pdf: process_pdf_fixture,
+    });
+    const source = await get_source(ingest_result.data.source_id, { cwd });
+
+    expect(result.ok).toBe(false);
+    expect(source.status).toBe('failed');
+    expect(source.last_error?.stage).toBe('processing');
+    await expect(
+      readdir(path.dirname(pdf_raw_path(source.id, cwd))),
+    ).resolves.toEqual([]);
+  });
+
   it('marks Source failed when processor fails', async () => {
     const cwd = await create_temp_dir();
     const file_path = await write_markdown_fixture(cwd);
@@ -471,6 +502,47 @@ describe('source workflows', () => {
     expect(result.ok ? undefined : result.error.code).toBe('PROCESSING_FAILED');
     expect(source.status).toBe('failed');
     expect(source.last_error?.message).toBe('processor failed');
+  });
+
+  it('marks PDF Source failed when PDF processor fails and preserves raw input', async () => {
+    const cwd = await create_temp_dir();
+    const file_path = await write_pdf_fixture(cwd, 'paper.pdf');
+    const ingest_result = await ingest_pdf_workflow({
+      file_path,
+      cwd,
+      now: new Date('2026-05-14T00:00:00.000Z'),
+    });
+    expect(ingest_result.ok).toBe(true);
+    if (!ingest_result.ok) {
+      return;
+    }
+    const raw_path = pdf_raw_path(ingest_result.data.source_id, cwd);
+    const raw_before = await readFile(raw_path);
+
+    const result = await process_source_workflow({
+      cwd,
+      source_id: ingest_result.data.source_id,
+      now: new Date('2026-05-14T01:00:00.000Z'),
+      process_pdf: async () => {
+        throw new Error('pdf parse failed');
+      },
+    });
+    const source = await get_source(ingest_result.data.source_id, { cwd });
+    const raw_after = await readFile(raw_path);
+
+    expect(result.ok).toBe(false);
+    expect(result.ok ? undefined : result.error.code).toBe('PROCESSING_FAILED');
+    expect(source.status).toBe('failed');
+    expect(source.last_error?.stage).toBe('processing');
+    expect(source.last_error?.message).toBe('pdf parse failed');
+    expect(source.note_ids).toEqual([]);
+    expect(raw_after).toEqual(raw_before);
+    await expect(
+      readdir(path.join(cwd, 'knowledge', 'notes')),
+    ).rejects.toThrow();
+    await expect(
+      readdir(path.join(cwd, 'knowledge', 'index')),
+    ).rejects.toThrow();
   });
 
   it('marks Source failed when artifact write fails', async () => {

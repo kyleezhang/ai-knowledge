@@ -30,7 +30,8 @@ export async function note_agent(input: {
     request,
   );
   const unsupported_conclusions = candidate.conclusions.filter(
-    (item) => !input.agent_input.discussion_summary.confirmed_points.includes(item),
+    (item) =>
+      !input.agent_input.discussion_summary.confirmed_points.includes(item),
   );
 
   if (unsupported_conclusions.length === 0) {
@@ -45,7 +46,8 @@ export async function note_agent(input: {
       '## Previous Output Semantic Error',
       json_block({
         unsupported_conclusions,
-        allowed_conclusions: input.agent_input.discussion_summary.confirmed_points,
+        allowed_conclusions:
+          input.agent_input.discussion_summary.confirmed_points,
       }),
       '',
       'Regenerate the Note JSON now. Preserve the same semantics, but every `conclusions` item must exactly match one item from Allowed Conclusions.',
@@ -105,5 +107,7 @@ function json_block(value: unknown): string {
 }
 
 function is_schema_error(error: unknown): error is AgentError {
-  return error instanceof AgentError && error.code === 'LLM_OUTPUT_SCHEMA_FAILED';
+  return (
+    error instanceof AgentError && error.code === 'LLM_OUTPUT_SCHEMA_FAILED'
+  );
 }

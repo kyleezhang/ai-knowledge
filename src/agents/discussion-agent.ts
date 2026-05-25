@@ -131,9 +131,10 @@ function is_json_output_error(error: unknown): error is AgentError {
 }
 
 function extract_explicit_confirmation(message: string): string | null {
-  const match = /I explicitly confirm this point for the final note:\s*(.+?)(?:\s+There are no open questions|$)/iu.exec(
-    message,
-  );
+  const match =
+    /I explicitly confirm this point for the final note:\s*(.+?)(?:\s+There are no open questions|$)/iu.exec(
+      message,
+    );
   const confirmed_point = match?.[1]?.trim();
   return confirmed_point === undefined || confirmed_point.length === 0
     ? null

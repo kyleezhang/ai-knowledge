@@ -32,7 +32,7 @@ export async function process_pdf(input: {
       .filter((page): page is string => page !== null)
       .join('\n\n');
 
-    return build_processed_document({
+    const processed = build_processed_document({
       raw_text: page_sections.length > 0 ? page_sections : text_result.text,
       source_title: input.source_title,
       processed_at: input.processed_at,
@@ -41,6 +41,15 @@ export async function process_pdf(input: {
         page_count: info_result.total,
       },
     });
+
+    if (
+      processed.clean_text.trim().length === 0 ||
+      processed.segments.length === 0
+    ) {
+      throw new Error('PDF processing produced no extractable text.');
+    }
+
+    return processed;
   } finally {
     await parser.destroy().catch(() => undefined);
   }

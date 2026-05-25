@@ -116,9 +116,7 @@ describe('discussion agent', () => {
       'Agents matter.',
     ]);
     expect(llm_client.inputs).toHaveLength(2);
-    expect(llm_client.inputs[1].user_prompt).toContain(
-      'Previous Output Error',
-    );
+    expect(llm_client.inputs[1].user_prompt).toContain('Previous Output Error');
   });
 
   it('derives confirmed points from explicit user confirmation when model omits them', async () => {
@@ -157,8 +155,8 @@ describe('discussion agent', () => {
     });
     const llm_client = new FakeLlmClient([schema_error, schema_error]);
 
-    await expect(
-      discussion_agent({ llm_client, agent_input }),
-    ).rejects.toThrow('LLM JSON output failed schema validation.');
+    await expect(discussion_agent({ llm_client, agent_input })).rejects.toThrow(
+      'LLM JSON output failed schema validation.',
+    );
   });
 });

@@ -61,5 +61,7 @@ function json_block(value: unknown): string {
 }
 
 function is_schema_error(error: unknown): error is AgentError {
-  return error instanceof AgentError && error.code === 'LLM_OUTPUT_SCHEMA_FAILED';
+  return (
+    error instanceof AgentError && error.code === 'LLM_OUTPUT_SCHEMA_FAILED'
+  );
 }

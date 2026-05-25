@@ -9,6 +9,7 @@ import type {
   NoteCandidate,
 } from '../agents/schemas.js';
 import type { LlmClient } from '../agents/types.js';
+import type { DocumentProcessingResult } from '../processing/document-processor.js';
 import type { AnswerAgentInput } from '../agents/answer-agent.js';
 import type { DiscussionAgentInput } from '../agents/discussion-agent.js';
 import type { NoteAgentInput } from '../agents/note-agent.js';
@@ -66,6 +67,11 @@ export function create_program(
     }) => Promise<GroundedAnswer>;
     repl_input?: AsyncIterable<string>;
     fetch_html?: (url: string) => Promise<string>;
+    process_pdf?: (input: {
+      raw_pdf: Uint8Array;
+      source_title: string;
+      processed_at: string;
+    }) => Promise<DocumentProcessingResult>;
   } = {},
 ): Command {
   const io = input.io ?? default_io;
@@ -209,6 +215,7 @@ export function create_program(
       const result = await process_source_workflow({
         source_id,
         cwd: input.cwd,
+        process_pdf: input.process_pdf,
       });
 
       if (options.json) {

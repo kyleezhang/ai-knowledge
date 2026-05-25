@@ -9,6 +9,7 @@ import type {
   NoteCandidate,
 } from '../../src/agents/schemas.js';
 import type { LlmClient } from '../../src/agents/types.js';
+import type { DocumentProcessingResult } from '../../src/processing/document-processor.js';
 import type { AnswerAgentInput } from '../../src/agents/answer-agent.js';
 import type { DiscussionAgentInput } from '../../src/agents/discussion-agent.js';
 import type { NoteAgentInput } from '../../src/agents/note-agent.js';
@@ -45,26 +46,30 @@ async function process_pdf_source(
   await process_source_workflow({
     cwd,
     source_id,
-    process_pdf: async () => ({
-      clean_text: '## Page 1\n\nPDF body.\n',
-      segments: [
-        {
-          id: 'seg_0001',
-          order: 1,
-          heading_path: ['Page 1'],
-          text: 'PDF body.',
-        },
-      ],
-      metadata: {
-        title: 'PDF Title',
-        headings: [{ level: 2, title: 'Page 1' }],
-        links: [],
-        segment_count: 1,
-        processed_at: '2026-05-14T01:00:00.000Z',
-        page_count: 1,
-      },
-    }),
+    process_pdf: process_pdf_fixture,
   });
+}
+
+async function process_pdf_fixture(): Promise<DocumentProcessingResult> {
+  return {
+    clean_text: '## Page 1\n\nPDF body.\n',
+    segments: [
+      {
+        id: 'seg_0001',
+        order: 1,
+        heading_path: ['Page 1'],
+        text: 'PDF body.',
+      },
+    ],
+    metadata: {
+      title: 'PDF Title',
+      headings: [{ level: 2, title: 'Page 1' }],
+      links: [],
+      segment_count: 1,
+      processed_at: '2026-05-14T01:00:00.000Z',
+      page_count: 1,
+    },
+  };
 }
 
 async function process_url_source(
@@ -527,6 +532,34 @@ describe('source CLI', () => {
           command: `ai-knowledge source understand ${ingest_json.data.source_id}`,
         },
       ],
+    });
+  });
+
+  it('supports JSON output for PDF source process', async () => {
+    const cwd = await create_temp_dir();
+    const file_path = await write_pdf_fixture(cwd, 'paper.pdf');
+    const ingest_harness = create_cli_harness(cwd);
+    await ingest_harness.run(['source', 'ingest', 'pdf', file_path, '--json']);
+    const source_id = source_id_from_output(ingest_harness.stdout[0]);
+    const process_harness = create_cli_harness(cwd, {
+      process_pdf: process_pdf_fixture,
+    });
+
+    await process_harness.run(['source', 'process', source_id, '--json']);
+
+    expect(JSON.parse(process_harness.stdout[0])).toMatchObject({
+      ok: true,
+      data: {
+        source: {
+          ingest_type: 'upload_pdf',
+          status: 'processed',
+          processing_artifacts: {
+            clean_text: 'processed/clean_text.md',
+            segments: 'processed/segments.json',
+            metadata: 'processed/metadata.json',
+          },
+        },
+      },
     });
   });
 
@@ -1126,6 +1159,11 @@ function create_cli_harness(
     }) => Promise<GroundedAnswer>;
     repl_input?: AsyncIterable<string>;
     fetch_html?: (url: string) => Promise<string>;
+    process_pdf?: (input: {
+      raw_pdf: Uint8Array;
+      source_title: string;
+      processed_at: string;
+    }) => Promise<DocumentProcessingResult>;
   } = {},
 ): {
   stdout: string[];
@@ -1160,6 +1198,7 @@ function create_cli_harness(
         answer: options.answer,
         repl_input: options.repl_input,
         fetch_html: options.fetch_html,
+        process_pdf: options.process_pdf,
       }).parseAsync(['node', 'ai-knowledge', ...args]);
     },
   };
