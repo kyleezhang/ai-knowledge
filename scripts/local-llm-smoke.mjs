@@ -8,16 +8,12 @@ if (result.status === 'skipped') {
   process.exitCode = 0;
 } else {
   console.log('Local LLM smoke test passed.');
-  if (result.workdir !== undefined) {
-    console.log(`workdir: ${result.workdir}`);
-  }
-  if (result.source_id !== undefined) {
-    console.log(`source_id: ${result.source_id}`);
-  }
-  if (result.note_id !== undefined) {
-    console.log(`note_id: ${result.note_id}`);
-  }
-  if (result.answer_conclusion !== undefined) {
-    console.log(`answer_conclusion: ${result.answer_conclusion}`);
+  console.log(`workdir: ${result.workdir}`);
+  for (const path_result of result.paths) {
+    console.log(`[${path_result.path}] source_id: ${path_result.source_id}`);
+    console.log(`[${path_result.path}] note_id: ${path_result.note_id}`);
+    console.log(
+      `[${path_result.path}] answer_conclusion: ${path_result.answer_conclusion}`,
+    );
   }
 }

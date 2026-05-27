@@ -16,6 +16,10 @@ describe('local LLM smoke test', () => {
     });
   });
 
+  it('defines one unified smoke path list for Markdown, PDF, and URL', () => {
+    expect(__test_only__.smoke_paths).toEqual(['markdown', 'pdf', 'url']);
+  });
+
   it('extracts the answer conclusion from CLI output', () => {
     const output = [
       '## 综合结论',
@@ -26,5 +30,19 @@ describe('local LLM smoke test', () => {
     expect(__test_only__.extract_answer_conclusion(output)).toBe(
       'Approved Notes preserve the agent memory boundary.',
     );
+  });
+
+  it('formats path-scoped command failures with debugging ids', () => {
+    expect(
+      __test_only__.format_smoke_command_error({
+        path_label: 'pdf',
+        args: ['source', 'process', 'src_20260526_upload_pdf_smoke'],
+        workdir: '/tmp/ai-knowledge-smoke',
+        source_id: 'src_20260526_upload_pdf_smoke',
+        note_id: 'note_20260526_pdf-smoke',
+        stderr: ['code: PROCESSING_FAILED'],
+        stdout: ['Source failed.'],
+      }),
+    ).toContain('Path failed: pdf');
   });
 });

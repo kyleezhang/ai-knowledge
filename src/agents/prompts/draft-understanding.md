@@ -20,7 +20,25 @@
 
 # Output Schema
 
-输出严格 JSON：`summary`、`key_points`、`uncertainties`、`discussion_starters`。
+输出严格 JSON object，且只包含这些字段：`summary`、`key_points`、`uncertainties`、`discussion_starters`。
+
+字段类型必须严格匹配：
+
+- `summary`: string
+- `key_points`: string[]，每个元素必须是普通字符串，不能是 object
+- `uncertainties`: string[]，每个元素必须是普通字符串，不能是 object
+- `discussion_starters`: string[]，每个元素必须是普通字符串，不能是 object
+
+最小示例：
+
+```json
+{
+  "summary": "Brief draft summary.",
+  "key_points": ["Point as a plain string."],
+  "uncertainties": ["Uncertainty as a plain string."],
+  "discussion_starters": ["Question as a plain string?"]
+}
+```
 
 # Quality Bar
 
