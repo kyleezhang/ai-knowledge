@@ -16,6 +16,10 @@ export function knowledge_dir(context: StoragePathContext = {}): string {
   );
 }
 
+export function candidates_root(context: StoragePathContext = {}): string {
+  return path.join(knowledge_dir(context), 'candidates');
+}
+
 export function sources_root(context: StoragePathContext = {}): string {
   return path.join(knowledge_dir(context), 'sources');
 }
@@ -26,6 +30,19 @@ export function notes_root(context: StoragePathContext = {}): string {
 
 export function index_root(context: StoragePathContext = {}): string {
   return path.join(knowledge_dir(context), 'index');
+}
+
+export function candidate_json_path(
+  candidate_id: string,
+  context: StoragePathContext = {},
+): string {
+  const { year, month } = candidate_year_month(candidate_id);
+  return path.join(
+    candidates_root(context),
+    year,
+    month,
+    `${candidate_id}.json`,
+  );
 }
 
 export function index_entry_path(
@@ -139,6 +156,24 @@ export function source_processed_dir(
   context: StoragePathContext = {},
 ): string {
   return path.join(source_dir(source_id, context), 'processed');
+}
+
+export function candidate_year_month(candidate_id: string): {
+  year: string;
+  month: string;
+} {
+  const match = /^cand_(\d{4})(\d{2})\d{2}_/.exec(candidate_id);
+  if (match === null) {
+    throw new StorageError({
+      code: 'INVALID_PATH',
+      message: `Invalid candidate id: ${candidate_id}`,
+    });
+  }
+
+  return {
+    year: match[1],
+    month: match[2],
+  };
 }
 
 export function note_year_month(note_id: string): {

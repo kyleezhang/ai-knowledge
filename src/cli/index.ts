@@ -2,6 +2,7 @@
 
 import { createInterface } from 'node:readline/promises';
 import { pathToFileURL } from 'node:url';
+import type { CandidateStatus } from '../domain/candidate.js';
 import type {
   DiscussionAgentOutput,
   DraftUnderstandingCandidate,
@@ -9,6 +10,7 @@ import type {
   NoteCandidate,
 } from '../agents/schemas.js';
 import type { LlmClient } from '../agents/types.js';
+import type { CollectorResult } from '../collectors/types.js';
 import type { DocumentProcessingResult } from '../processing/document-processor.js';
 import type { AnswerAgentInput } from '../agents/answer-agent.js';
 import type { DiscussionAgentInput } from '../agents/discussion-agent.js';
@@ -18,6 +20,10 @@ import { Command } from 'commander';
 import { answer_question_workflow } from '../workflows/answer-question-workflow.js';
 import { approve_note_workflow } from '../workflows/approve-note-workflow.js';
 import { approve_source_workflow } from '../workflows/approve-source-workflow.js';
+import {
+  collect_candidates_workflow,
+  type CandidateCollectorProvider,
+} from '../workflows/collect-candidates-workflow.js';
 import { compose_note_workflow } from '../workflows/compose-note-workflow.js';
 import { discuss_source_workflow } from '../workflows/discuss-source-workflow.js';
 import { index_note_workflow } from '../workflows/index-note-workflow.js';
@@ -26,10 +32,12 @@ import { ingest_markdown_workflow } from '../workflows/ingest-markdown-workflow.
 import { ingest_pdf_workflow } from '../workflows/ingest-pdf-workflow.js';
 import { ingest_url_workflow } from '../workflows/ingest-url-workflow.js';
 import { lint_note_workflow } from '../workflows/lint-note-workflow.js';
+import { list_candidates_workflow } from '../workflows/list-candidates-workflow.js';
 import { list_notes_workflow } from '../workflows/list-notes-workflow.js';
 import { list_sources_workflow } from '../workflows/list-sources-workflow.js';
 import { process_source_workflow } from '../workflows/process-source-workflow.js';
 import { render_note_workflow } from '../workflows/render-note-workflow.js';
+import { show_candidate_workflow } from '../workflows/show-candidate-workflow.js';
 import { show_note_workflow } from '../workflows/show-note-workflow.js';
 import { show_source_workflow } from '../workflows/show-source-workflow.js';
 import { understand_source_workflow } from '../workflows/understand-source-workflow.js';
@@ -78,6 +86,9 @@ export function create_program(
       source_url: string;
       processed_at: string;
     }) => DocumentProcessingResult;
+    collect_candidates?: (
+      provider: CandidateCollectorProvider,
+    ) => Promise<CollectorResult>;
   } = {},
 ): Command {
   const io = input.io ?? default_io;
@@ -100,6 +111,110 @@ export function create_program(
 
       io.stdout('Knowledge storage initialized.');
       io.stdout(`Root: ${result.data.knowledge_dir}`);
+    });
+
+  const candidate = program
+    .command('candidate')
+    .description('Manage Candidates.');
+
+  const candidate_collect = candidate
+    .command('collect')
+    .description('Collect Candidates from external sources.');
+
+  candidate_collect
+    .command('github-trending')
+    .option('--json', 'Output JSON')
+    .description('Collect GitHub Trending Candidates.')
+    .action(async (options: { json?: boolean }) => {
+      const result = await collect_candidates_workflow({
+        provider: 'github-trending',
+        cwd: input.cwd,
+        collect:
+          input.collect_candidates === undefined
+            ? undefined
+            : () => input.collect_candidates!('github-trending'),
+      });
+
+      if (options.json) {
+        print_json_result(result, io);
+        return;
+      }
+      if (!handle_result(result, io)) {
+        return;
+      }
+      for (const candidate_summary of result.data.candidates) {
+        print_candidate_summary(candidate_summary, io);
+      }
+    });
+
+  candidate_collect
+    .command('hacker-news')
+    .option('--json', 'Output JSON')
+    .description('Collect Hacker News Candidates.')
+    .action(async (options: { json?: boolean }) => {
+      const result = await collect_candidates_workflow({
+        provider: 'hacker-news',
+        cwd: input.cwd,
+        collect:
+          input.collect_candidates === undefined
+            ? undefined
+            : () => input.collect_candidates!('hacker-news'),
+      });
+
+      if (options.json) {
+        print_json_result(result, io);
+        return;
+      }
+      if (!handle_result(result, io)) {
+        return;
+      }
+      for (const candidate_summary of result.data.candidates) {
+        print_candidate_summary(candidate_summary, io);
+      }
+    });
+
+  candidate
+    .command('list')
+    .option('--status <status>', 'Filter by Candidate status')
+    .option('--json', 'Output JSON')
+    .description('List Candidates.')
+    .action(async (options: { status?: string; json?: boolean }) => {
+      const result = await list_candidates_workflow({
+        status: options.status as CandidateStatus | undefined,
+        cwd: input.cwd,
+      });
+
+      if (options.json) {
+        print_json_result(result, io);
+        return;
+      }
+      if (!handle_result(result, io)) {
+        return;
+      }
+      for (const candidate_summary of result.data.candidates) {
+        print_candidate_summary(candidate_summary, io);
+      }
+    });
+
+  candidate
+    .command('show')
+    .argument('<candidate_id>')
+    .option('--json', 'Output JSON')
+    .description('Show Candidate summary.')
+    .action(async (candidate_id: string, options: { json?: boolean }) => {
+      const result = await show_candidate_workflow({
+        candidate_id,
+        cwd: input.cwd,
+      });
+
+      if (options.json) {
+        print_json_result(result, io);
+        return;
+      }
+      if (!handle_result(result, io)) {
+        return;
+      }
+      print_candidate_summary(result.data.candidate, io);
     });
 
   program
@@ -752,6 +867,34 @@ function print_grounded_answer(answer: GroundedAnswer, io: CliIo): void {
   for (const limitation of answer.limitations) {
     io.stdout(`- ${limitation}`);
   }
+}
+
+function print_candidate_summary(
+  candidate_summary: {
+    id: string;
+    status: string;
+    source_type: string;
+    title: string;
+    summary: string;
+    url: string;
+    score: { total: number; reason: string };
+    collected_at: string;
+    converted_source_id: string | null;
+  },
+  io: CliIo,
+): void {
+  io.stdout(`id: ${candidate_summary.id}`);
+  io.stdout(`title: ${candidate_summary.title}`);
+  io.stdout(`status: ${candidate_summary.status}`);
+  io.stdout(`source_type: ${candidate_summary.source_type}`);
+  io.stdout(`score: ${candidate_summary.score.total}`);
+  io.stdout(`score_reason: ${candidate_summary.score.reason}`);
+  io.stdout(`collected_at: ${candidate_summary.collected_at}`);
+  io.stdout(`url: ${candidate_summary.url}`);
+  io.stdout(
+    `converted_source_id: ${candidate_summary.converted_source_id ?? ''}`,
+  );
+  io.stdout(`summary: ${candidate_summary.summary}`);
 }
 
 function print_note_summary(

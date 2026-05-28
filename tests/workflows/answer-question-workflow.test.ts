@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { build_index_entry } from '../../src/indexing/build-index-entry.js';
 import { render_note_markdown } from '../../src/notes/render-markdown.js';
+import { create_candidate } from '../../src/storage/candidate-repo.js';
 import { save_index_entry } from '../../src/storage/index-repo.js';
 import { create_note } from '../../src/storage/note-repo.js';
 import { answer_question_workflow } from '../../src/workflows/answer-question-workflow.js';
+import { create_test_candidate } from '../candidate-test-helpers.js';
 import { create_test_note } from '../note-test-helpers.js';
 import { create_temp_dir } from '../source-test-helpers.js';
 
@@ -78,6 +80,33 @@ describe('answer question workflow', () => {
     if (!result.ok) return;
     expect(result.data.matched_note_ids).toEqual([note.id]);
     expect(result.data.answer.cited_notes[0].note_id).toBe(note.id);
+  });
+
+  it('does not answer directly from matching Candidates', async () => {
+    const cwd = await create_temp_dir();
+    await create_candidate(
+      create_test_candidate({
+        title: 'Agent Candidate',
+        summary: 'agent candidate memory should not be answer evidence',
+      }),
+      { cwd },
+    );
+    let called = false;
+
+    const result = await answer_question_workflow({
+      cwd,
+      question: 'agent candidate memory',
+      answer: async () => {
+        called = true;
+        throw new Error('should not call');
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(called).toBe(false);
+    expect(result.data.matched_note_ids).toEqual([]);
+    expect(result.data.answer.conclusion).toBe('没有相关已确认知识。');
   });
 
   it('respects top_k', async () => {
