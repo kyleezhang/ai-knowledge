@@ -133,6 +133,13 @@ export function source_raw_html_path(
   return source_raw_path(source_id, 'fetched.html', context);
 }
 
+export function source_raw_feishu_doc_snapshot_path(
+  source_id: string,
+  context: StoragePathContext = {},
+): string {
+  return source_raw_path(source_id, 'feishu-doc.json', context);
+}
+
 export function source_raw_file_name_for_ingest_type(
   ingest_type: SourceIngestType,
 ): string {
@@ -143,6 +150,10 @@ export function source_raw_file_name_for_ingest_type(
       return 'original.pdf';
     case 'input_url':
       return 'fetched.html';
+    case 'feishu_doc':
+      return 'original.md';
+    case 'candidate_selected':
+      return 'original.md';
     default:
       throw new StorageError({
         code: 'INVALID_PATH',

@@ -17,6 +17,14 @@ describe('note markdown renderer', () => {
     expect(markdown).toContain('processed/segments.json#seg_0001');
   });
 
+  it('renders related note ids from note JSON', () => {
+    const markdown = render_note_markdown(
+      create_test_note({ related_note_ids: ['note_20260514_related'] }),
+    );
+
+    expect(markdown).toContain('- note_20260514_related');
+  });
+
   it('renders stably for the same note', () => {
     const note = create_test_note();
 

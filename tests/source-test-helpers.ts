@@ -63,6 +63,7 @@ export function create_test_source(overrides: Partial<Source> = {}): Source {
       last_updated_at: '2026-05-14T00:00:00.000Z',
     },
     note_ids: [],
+    metadata: undefined,
   };
 
   return {

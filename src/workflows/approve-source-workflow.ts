@@ -1,10 +1,14 @@
+import {
+  check_discussion_convergence,
+  format_discussion_convergence_failure_reasons,
+} from '../domain/discussion-convergence.js';
 import { transition_source } from '../domain/state-machine.js';
 import { parse_source } from '../domain/source.js';
 import type { StorageConfig } from '../storage/config.js';
 import { StorageError } from '../storage/errors.js';
 import { get_source, save_source } from '../storage/source-repo.js';
 import { summarize_source, type SourceSummary } from './source-summary.js';
-import type { NextAction, WorkflowResult } from './types.js';
+import type { NextAction, WorkflowError, WorkflowResult } from './types.js';
 
 export type ApproveSourceWorkflowInput = {
   source_id: string;
@@ -30,18 +34,19 @@ export async function approve_source_workflow(
         `Source must be discussing before approval. Current status: ${source.status}`,
       );
     }
-    if (source.discussion_summary.confirmed_points.length === 0) {
+    const convergence = check_discussion_convergence(source);
+    if (!convergence.passed) {
       return invalid_state(
-        'Discussion must have confirmed_points before approval.',
+        'Discussion has not converged and cannot be approved.',
+        {
+          reasons: convergence.reasons,
+          messages: format_discussion_convergence_failure_reasons(
+            convergence.reasons,
+          ),
+        },
       );
     }
     const summary = source.discussion_summary;
-    const has_advisory_blockers =
-      summary.open_questions.length > 0 || summary.unresolved_issues.length > 0;
-    const approval_note =
-      summary.ready_for_approval && !has_advisory_blockers
-        ? undefined
-        : 'Approved through explicit user confirmation while model readiness or advisory discussion signals were not fully converged.';
 
     const timestamp = (input.now ?? new Date()).toISOString();
     const updated_source = parse_source({
@@ -51,10 +56,7 @@ export async function approve_source_workflow(
           discussion_summary: {
             ...summary,
             discussion_status: 'closed',
-            next_prompts:
-              approval_note === undefined
-                ? summary.next_prompts
-                : [approval_note, ...summary.next_prompts],
+            next_prompts: summary.next_prompts,
             last_updated_at: timestamp,
           },
           updated_at: timestamp,
@@ -64,10 +66,7 @@ export async function approve_source_workflow(
       discussion_summary: {
         ...summary,
         discussion_status: 'closed',
-        next_prompts:
-          approval_note === undefined
-            ? summary.next_prompts
-            : [approval_note, ...summary.next_prompts],
+        next_prompts: summary.next_prompts,
         last_updated_at: timestamp,
       },
       updated_at: timestamp,
@@ -119,12 +118,14 @@ export async function approve_source_workflow(
 
 function invalid_state(
   message: string,
+  details?: WorkflowError['details'],
 ): WorkflowResult<ApproveSourceWorkflowData> {
   return {
     ok: false,
     error: {
       code: 'INVALID_STATE',
       message,
+      details,
     },
   };
 }

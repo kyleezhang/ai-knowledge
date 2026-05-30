@@ -8,6 +8,7 @@ import {
   type DiscussionAgentInput,
 } from '../agents/discussion-agent.js';
 import type { LlmClient } from '../agents/types.js';
+import { check_discussion_convergence } from '../domain/discussion-convergence.js';
 import { transition_source } from '../domain/state-machine.js';
 import type { Source } from '../domain/source.js';
 import { parse_source } from '../domain/source.js';
@@ -131,14 +132,21 @@ export async function discuss_source_workflow(
       context,
     );
 
-    const discussion_summary = {
+    const candidate_summary = {
       ...source.discussion_summary,
       ...output.discussion_summary_update,
-      discussion_status: output.discussion_summary_update.ready_for_approval
-        ? 'ready_for_approval'
-        : 'open',
       summary_version: source.discussion_summary.summary_version + 1,
       last_updated_at: timestamp,
+    } satisfies Source['discussion_summary'];
+    const convergence = check_discussion_convergence({
+      ...source,
+      discussion_summary: candidate_summary,
+    });
+    const ready_for_approval = convergence.passed;
+    const discussion_summary = {
+      ...candidate_summary,
+      ready_for_approval,
+      discussion_status: ready_for_approval ? 'ready_for_approval' : 'open',
     } satisfies Source['discussion_summary'];
 
     source = parse_source({

@@ -1,7 +1,11 @@
 import { readdir } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { CollectorError } from '../../src/collectors/types.js';
-import { get_candidate } from '../../src/storage/candidate-repo.js';
+import {
+  create_candidate,
+  get_candidate,
+} from '../../src/storage/candidate-repo.js';
+import { create_test_candidate } from '../candidate-test-helpers.js';
 import {
   collect_candidates_workflow,
   type CandidateCollectorProvider,
@@ -26,14 +30,17 @@ describe('collect candidates workflow', () => {
     if (!result.ok) return;
     expect(result.data.candidates).toHaveLength(1);
     expect(result.data.candidates[0]).toMatchObject({
-      id: 'cand_20260527_github_trending_github-candidate',
-      status: 'new',
-      score: { total: 0 },
+      id: 'cand_20260527_github_trending_github-ai-agent-candidate',
+      status: 'recommended',
     });
+    expect(result.data.candidates[0].score.total).toBeGreaterThanOrEqual(8);
+    expect(result.data.results).toEqual([
+      { status: 'created', candidate: result.data.candidates[0] },
+    ]);
     await expect(
       get_candidate(result.data.candidates[0].id, { cwd }),
     ).resolves.toMatchObject({
-      status: 'new',
+      status: 'recommended',
       converted_source_id: null,
     });
   });
@@ -54,9 +61,47 @@ describe('collect candidates workflow', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.candidates[0]).toMatchObject({
-      id: 'cand_20260527_hacker_news_hacker-news-candidate',
+      id: 'cand_20260527_hacker_news_hacker-news-ai-agent-candidate',
       source_type: 'hacker_news',
     });
+  });
+
+  it('returns duplicate result without creating a new Candidate', async () => {
+    const cwd = await create_temp_dir();
+    const existing = create_test_candidate({
+      id: 'cand_20260526_github_trending_existing',
+      title: 'GitHub Candidate',
+      url: 'https://github.com/owner/repo',
+      external_ref: {
+        platform: 'github',
+        id: 'owner/repo',
+        url: 'https://github.com/owner/repo',
+        extra: {},
+      },
+    });
+    await create_candidate(existing, { cwd });
+
+    const result = await collect_candidates_workflow({
+      cwd,
+      provider: 'github-trending',
+      now: new Date('2026-05-27T00:00:00.000Z'),
+      collect: async () => ({
+        ok: true,
+        candidates: [collected_candidate('github-trending')],
+      }),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.candidates).toEqual([]);
+    expect(result.data.results).toEqual([
+      {
+        status: 'duplicate',
+        title: 'GitHub AI Agent Candidate',
+        reason: 'canonical_url',
+        existing_candidate_id: existing.id,
+      },
+    ]);
   });
 
   it('returns structured error and creates no Candidate on collector failure', async () => {
@@ -109,8 +154,11 @@ function collected_candidate(provider: CandidateCollectorProvider) {
     source_type: is_github
       ? ('github_trending' as const)
       : ('hacker_news' as const),
-    title: is_github ? 'GitHub Candidate' : 'Hacker News Candidate',
-    summary: 'Collected candidate summary.',
+    title: is_github
+      ? 'GitHub AI Agent Candidate'
+      : 'Hacker News AI Agent Candidate',
+    summary:
+      'A new AI agent research toolkit with practical tradeoff examples and implementation details.',
     url: is_github
       ? 'https://github.com/owner/repo'
       : 'https://example.com/hn-story',

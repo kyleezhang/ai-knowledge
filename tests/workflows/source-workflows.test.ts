@@ -7,6 +7,7 @@ import { read_discussion_messages } from '../../src/storage/discussion-log.js';
 import { get_source } from '../../src/storage/source-repo.js';
 import { approve_source_workflow } from '../../src/workflows/approve-source-workflow.js';
 import { discuss_source_workflow } from '../../src/workflows/discuss-source-workflow.js';
+import { ingest_feishu_doc_workflow } from '../../src/workflows/ingest-feishu-doc-workflow.js';
 import { ingest_markdown_workflow } from '../../src/workflows/ingest-markdown-workflow.js';
 import { ingest_pdf_workflow } from '../../src/workflows/ingest-pdf-workflow.js';
 import { ingest_url_workflow } from '../../src/workflows/ingest-url-workflow.js';
@@ -122,6 +123,32 @@ function pdf_raw_path(source_id: string, cwd: string): string {
   );
 }
 
+function feishu_markdown_raw_path(source_id: string, cwd: string): string {
+  return path.join(
+    cwd,
+    'knowledge',
+    'sources',
+    '2026',
+    '05',
+    source_id,
+    'raw',
+    'original.md',
+  );
+}
+
+function feishu_snapshot_raw_path(source_id: string, cwd: string): string {
+  return path.join(
+    cwd,
+    'knowledge',
+    'sources',
+    '2026',
+    '05',
+    source_id,
+    'raw',
+    'feishu-doc.json',
+  );
+}
+
 function html_raw_path(source_id: string, cwd: string): string {
   return path.join(
     cwd,
@@ -228,6 +255,97 @@ describe('source workflows', () => {
         command: 'ai-knowledge source process src_20260514_input_url_article',
       },
     ]);
+  });
+
+  it('ingests a Feishu Doc, saves snapshots, and returns a process next action', async () => {
+    const cwd = await create_temp_dir();
+
+    const result = await ingest_feishu_doc_workflow({
+      doc_url_or_token: 'https://example.feishu.cn/docx/test-doc',
+      cwd,
+      now: new Date('2026-05-14T00:00:00.000Z'),
+      read_feishu_doc: async () => ({
+        title: 'Feishu Test Doc',
+        document_type: 'docx',
+        markdown: '# Feishu Test Doc\n\nImported body.\n',
+        raw_snapshot: { title: 'Feishu Test Doc', blocks: [] },
+      }),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(result.data.source_id).toBe(
+      'src_20260514_feishu_doc_feishu-test-doc',
+    );
+    expect(result.data.source.ingest_type).toBe('feishu_doc');
+    expect(result.data.source.content_type).toBe('document');
+    expect(result.data.source.processing_artifacts).toEqual({});
+    expect(
+      await readFile(
+        feishu_markdown_raw_path(result.data.source_id, cwd),
+        'utf8',
+      ),
+    ).toBe('# Feishu Test Doc\n\nImported body.\n');
+    expect(
+      await readFile(
+        feishu_snapshot_raw_path(result.data.source_id, cwd),
+        'utf8',
+      ),
+    ).toContain('Feishu Test Doc');
+    const source = await get_source(result.data.source_id, { cwd });
+    expect(source.metadata?.feishu_doc).toEqual({
+      original_input: 'https://example.feishu.cn/docx/test-doc',
+      title: 'Feishu Test Doc',
+      document_type: 'docx',
+      imported_at: '2026-05-14T00:00:00.000Z',
+    });
+    expect(result.next_actions).toEqual([
+      {
+        label: 'Process source',
+        command:
+          'ai-knowledge source process src_20260514_feishu_doc_feishu-test-doc',
+      },
+    ]);
+  });
+
+  it('does not create a Source when Feishu Doc import fails', async () => {
+    const cwd = await create_temp_dir();
+
+    const attempts = [
+      ingest_feishu_doc_workflow({ doc_url_or_token: '   ', cwd }),
+      ingest_feishu_doc_workflow({
+        doc_url_or_token: 'token',
+        cwd,
+        read_feishu_doc: async () => {
+          throw new Error('permission denied');
+        },
+      }),
+      ingest_feishu_doc_workflow({
+        doc_url_or_token: 'token',
+        cwd,
+        read_feishu_doc: async () => ({
+          title: 'Empty',
+          document_type: 'docx',
+          markdown: '   ',
+          raw_snapshot: {},
+        }),
+      }),
+    ];
+
+    for (const attempt of attempts) {
+      const result = await attempt;
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('INVALID_INPUT');
+      }
+    }
+
+    await expect(
+      readdir(path.join(cwd, 'knowledge', 'sources')),
+    ).rejects.toThrow();
   });
 
   it('does not create a Source when URL import input is unsupported', async () => {
@@ -473,6 +591,109 @@ describe('source workflows', () => {
       segments: 'processed/segments.json',
       metadata: 'processed/metadata.json',
     });
+  });
+
+  it('processes a Feishu Doc snapshot into normalized artifacts', async () => {
+    const cwd = await create_temp_dir();
+    const ingest_result = await ingest_feishu_doc_workflow({
+      doc_url_or_token: 'doc_token',
+      cwd,
+      now: new Date('2026-05-14T00:00:00.000Z'),
+      read_feishu_doc: async () => ({
+        title: 'Feishu Processing',
+        document_type: 'docx',
+        markdown: '# Feishu Processing\n\nImported body.\n',
+        raw_snapshot: { title: 'Feishu Processing' },
+      }),
+    });
+    expect(ingest_result.ok).toBe(true);
+    if (!ingest_result.ok) {
+      return;
+    }
+
+    const result = await process_source_workflow({
+      cwd,
+      source_id: ingest_result.data.source_id,
+      now: new Date('2026-05-14T01:00:00.000Z'),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.data.source.status).toBe('processed');
+    expect(result.data.source.processing_artifacts).toEqual({
+      clean_text: 'processed/clean_text.md',
+      segments: 'processed/segments.json',
+      metadata: 'processed/metadata.json',
+    });
+    const source_dir = path.join(
+      cwd,
+      'knowledge',
+      'sources',
+      '2026',
+      '05',
+      ingest_result.data.source_id,
+    );
+    const segments = JSON.parse(
+      await readFile(
+        path.join(source_dir, 'processed', 'segments.json'),
+        'utf8',
+      ),
+    ) as Array<{
+      locator: {
+        source_kind: string;
+        ref: string;
+        position: number;
+        heading_path: string[];
+      };
+    }>;
+    expect(segments[0]?.locator).toMatchObject({
+      source_kind: 'feishu_doc',
+      ref: 'processed/segments.json#seg_0001',
+      position: 1,
+      heading_path: ['Feishu Processing'],
+    });
+  });
+
+  it('records processing last_error when Feishu Doc snapshot is missing', async () => {
+    const cwd = await create_temp_dir();
+    const ingest_result = await ingest_feishu_doc_workflow({
+      doc_url_or_token: 'doc_token',
+      cwd,
+      now: new Date('2026-05-14T00:00:00.000Z'),
+      read_feishu_doc: async () => ({
+        title: 'Missing Snapshot',
+        document_type: 'docx',
+        markdown: '# Missing Snapshot\n\nBody.\n',
+        raw_snapshot: { title: 'Missing Snapshot' },
+      }),
+    });
+    expect(ingest_result.ok).toBe(true);
+    if (!ingest_result.ok) {
+      return;
+    }
+    await rm(feishu_markdown_raw_path(ingest_result.data.source_id, cwd));
+
+    const result = await process_source_workflow({
+      cwd,
+      source_id: ingest_result.data.source_id,
+      now: new Date('2026-05-14T01:00:00.000Z'),
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    const source = await get_source(ingest_result.data.source_id, { cwd });
+    expect(source.status).toBe('failed');
+    expect(source.last_error?.stage).toBe('processing');
+    await expect(
+      readFile(
+        feishu_snapshot_raw_path(ingest_result.data.source_id, cwd),
+        'utf8',
+      ),
+    ).resolves.toContain('Missing Snapshot');
   });
 
   it('rejects processing when Source is not ingested', async () => {
@@ -1000,6 +1221,7 @@ describe('source workflows', () => {
     expect(second.data.discussion_summary.discussion_status).toBe(
       'ready_for_approval',
     );
+    expect(second.data.discussion_summary.ready_for_approval).toBe(true);
   });
 
   it('keeps Source discussing when discussion agent fails', async () => {
@@ -1078,13 +1300,41 @@ describe('source workflows', () => {
     expect(result.error.code).toBe('INVALID_STATE');
   });
 
-  it('approves through explicit confirmation while preserving advisory questions', async () => {
+  it('normalizes readiness to false when open questions remain', async () => {
+    const cwd = await create_temp_dir();
+    const source_id = await create_understanding_ready_source(cwd);
+
+    const result = await discuss_source_workflow({
+      cwd,
+      source_id,
+      user_message: 'Ready but still has blockers.',
+      discuss: async () => ({
+        assistant_message: 'Not actually ready.',
+        discussion_summary_update: {
+          confirmed_points: ['Confirmed'],
+          open_questions: ['Question'],
+          unresolved_issues: ['Issue'],
+          next_prompts: [],
+          ready_for_approval: true,
+        },
+      }),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.data.discussion_summary.ready_for_approval).toBe(false);
+    expect(result.data.discussion_summary.discussion_status).toBe('open');
+  });
+
+  it('rejects approval when convergence checker reports blockers', async () => {
     const cwd = await create_temp_dir();
     const source_id = await create_understanding_ready_source(cwd);
     await discuss_source_workflow({
       cwd,
       source_id,
-      user_message: 'Approve with advisory questions preserved.',
+      user_message: 'Approve with blockers preserved.',
       discuss: async () => ({
         assistant_message: 'Not ready.',
         discussion_summary_update: {
@@ -1092,7 +1342,7 @@ describe('source workflows', () => {
           open_questions: ['Question'],
           unresolved_issues: ['Issue'],
           next_prompts: [],
-          ready_for_approval: false,
+          ready_for_approval: true,
         },
       }),
     });
@@ -1100,19 +1350,26 @@ describe('source workflows', () => {
     const result = await approve_source_workflow({ cwd, source_id });
     const source = await get_source(source_id, { cwd });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
+    expect(result.ok).toBe(false);
+    if (result.ok) {
       return;
     }
-    expect(result.data.source.status).toBe('approved_for_note');
-    expect(source.discussion_summary.open_questions).toEqual(['Question']);
-    expect(source.discussion_summary.unresolved_issues).toEqual(['Issue']);
-    expect(source.discussion_summary.next_prompts).toContain(
-      'Approved through explicit user confirmation while model readiness or advisory discussion signals were not fully converged.',
-    );
+    expect(source.status).toBe('discussing');
+    expect(result.error.details).toEqual({
+      reasons: [
+        'ready_for_approval_false',
+        'open_questions_present',
+        'unresolved_issues_present',
+      ],
+      messages: [
+        'Discussion summary is not marked ready_for_approval.',
+        'Discussion still has open_questions.',
+        'Discussion still has unresolved_issues.',
+      ],
+    });
   });
 
-  it('allows explicit user approval when confirmed_points exist and no blockers remain', async () => {
+  it('rejects approval when confirmed points exist but readiness is false', async () => {
     const cwd = await create_temp_dir();
     const source_id = await create_understanding_ready_source(cwd);
     await discuss_source_workflow({
@@ -1133,11 +1390,14 @@ describe('source workflows', () => {
 
     const result = await approve_source_workflow({ cwd, source_id });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
+    expect(result.ok).toBe(false);
+    if (result.ok) {
       return;
     }
-    expect(result.data.source.status).toBe('approved_for_note');
+    expect(result.error.details).toEqual({
+      reasons: ['ready_for_approval_false'],
+      messages: ['Discussion summary is not marked ready_for_approval.'],
+    });
   });
 
   it('rejects approval without confirmed points', async () => {
@@ -1166,8 +1426,15 @@ describe('source workflows', () => {
       return;
     }
     expect(result.error.message).toBe(
-      'Discussion must have confirmed_points before approval.',
+      'Discussion has not converged and cannot be approved.',
     );
+    expect(result.error.details).toEqual({
+      reasons: ['ready_for_approval_false', 'missing_confirmed_points'],
+      messages: [
+        'Discussion summary is not marked ready_for_approval.',
+        'Discussion is missing confirmed_points.',
+      ],
+    });
   });
 
   it('returns NOT_FOUND for missing Source show', async () => {

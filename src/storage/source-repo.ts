@@ -30,11 +30,18 @@ export type SourceRepoContext = {
   cwd?: string;
 };
 
+export type CreateSourceRawArtifactInput = {
+  file_name: string;
+  file_path?: string;
+  content?: string | Uint8Array;
+};
+
 export type CreateSourceInput = {
   source: Source;
   raw_file_name?: string;
   raw_file_path?: string;
   raw_content?: string | Uint8Array;
+  raw_artifacts?: CreateSourceRawArtifactInput[];
 };
 
 export async function create_source(
@@ -52,19 +59,25 @@ export async function create_source(
     });
   }
 
-  const raw_file_name =
-    input.raw_file_name ??
-    source_raw_file_name_for_ingest_type(source.ingest_type);
-  validate_raw_input(input, raw_file_name);
+  const raw_artifacts = normalize_raw_artifacts(input, source.ingest_type);
+  for (const artifact of raw_artifacts) {
+    validate_raw_artifact_input(artifact);
+  }
 
   await mkdir(source_raw_dir(source.id, context), { recursive: true });
   await mkdir(source_processed_dir(source.id, context), { recursive: true });
 
-  const raw_target_path = source_raw_path(source.id, raw_file_name, context);
-  if (input.raw_file_path !== undefined) {
-    await cp(input.raw_file_path, raw_target_path);
-  } else {
-    await write_raw_content(raw_target_path, input.raw_content!);
+  for (const artifact of raw_artifacts) {
+    const raw_target_path = source_raw_path(
+      source.id,
+      artifact.file_name,
+      context,
+    );
+    if (artifact.file_path !== undefined) {
+      await cp(artifact.file_path, raw_target_path);
+    } else {
+      await write_raw_content(raw_target_path, artifact.content!);
+    }
   }
 
   await writeFile(source_discussion_path(source.id, context), '', 'utf8');
@@ -142,29 +155,66 @@ export async function list_sources(
     .sort((left, right) => right.updated_at.localeCompare(left.updated_at));
 }
 
-function validate_raw_input(
+function normalize_raw_artifacts(
   input: CreateSourceInput,
-  raw_file_name: string,
+  ingest_type: Source['ingest_type'],
+): CreateSourceRawArtifactInput[] {
+  if (input.raw_artifacts !== undefined) {
+    if (
+      input.raw_file_name !== undefined ||
+      input.raw_file_path !== undefined ||
+      input.raw_content !== undefined
+    ) {
+      throw new StorageError({
+        code: 'WRITE_FAILED',
+        message:
+          'CreateSourceInput cannot mix raw_artifacts with legacy raw input fields.',
+      });
+    }
+
+    if (input.raw_artifacts.length === 0) {
+      throw new StorageError({
+        code: 'WRITE_FAILED',
+        message: 'CreateSourceInput.raw_artifacts must not be empty.',
+      });
+    }
+
+    return input.raw_artifacts;
+  }
+
+  return [
+    {
+      file_name:
+        input.raw_file_name ??
+        source_raw_file_name_for_ingest_type(ingest_type),
+      file_path: input.raw_file_path,
+      content: input.raw_content,
+    },
+  ];
+}
+
+function validate_raw_artifact_input(
+  artifact: CreateSourceRawArtifactInput,
 ): void {
-  if (path.basename(raw_file_name) !== raw_file_name) {
+  if (path.basename(artifact.file_name) !== artifact.file_name) {
     throw new StorageError({
       code: 'INVALID_PATH',
-      message: `Invalid raw file name: ${raw_file_name}`,
+      message: `Invalid raw file name: ${artifact.file_name}`,
     });
   }
 
-  if (input.raw_file_path !== undefined && input.raw_content !== undefined) {
+  if (artifact.file_path !== undefined && artifact.content !== undefined) {
     throw new StorageError({
       code: 'WRITE_FAILED',
       message:
-        'CreateSourceInput cannot provide both raw_file_path and raw_content.',
+        'CreateSource raw artifact cannot provide both file_path and content.',
     });
   }
 
-  if (input.raw_file_path === undefined && input.raw_content === undefined) {
+  if (artifact.file_path === undefined && artifact.content === undefined) {
     throw new StorageError({
       code: 'WRITE_FAILED',
-      message: 'CreateSourceInput must provide raw_file_path or raw_content.',
+      message: 'CreateSource raw artifact must provide file_path or content.',
     });
   }
 }

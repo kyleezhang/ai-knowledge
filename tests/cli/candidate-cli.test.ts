@@ -14,13 +14,17 @@ describe('candidate CLI', () => {
     const json = create_cli_harness(cwd, collect_fixture);
     await json.run(['candidate', 'collect', 'hacker-news', '--json']);
 
-    expect(text.stdout.join('\n')).toContain('GitHub Candidate');
+    expect(text.stdout.join('\n')).toContain('created:');
+    expect(text.stdout.join('\n')).toContain('GitHub AI Agent Candidate');
     expect(JSON.parse(json.stdout[0])).toMatchObject({
       ok: true,
       data: {
         provider: 'hacker-news',
         candidates: [
-          { source_type: 'hacker_news', title: 'Hacker News Candidate' },
+          {
+            source_type: 'hacker_news',
+            title: 'Hacker News AI Agent Candidate',
+          },
         ],
       },
     });
@@ -90,6 +94,40 @@ describe('candidate CLI', () => {
     expect(invalid.stderr.join('\n')).toContain('code: INVALID_INPUT');
   });
 
+  it('scores Candidate with text and JSON output', async () => {
+    const cwd = await create_temp_dir();
+    const candidate = create_test_candidate({
+      title: 'New AI Agent Research Toolkit',
+      summary:
+        'A new research toolkit for AI agents with practical tradeoff examples and implementation details.',
+      tags: ['ai', 'agent'],
+      status: 'new',
+      scored_at: null,
+      score: {
+        total: 0,
+        breakdown: {
+          relevance: 0,
+          learning_value: 0,
+          novelty: 0,
+          discussability: 0,
+        },
+        reason: 'Not scored yet.',
+      },
+    });
+    await create_candidate(candidate, { cwd });
+
+    const text = create_cli_harness(cwd);
+    await text.run(['candidate', 'score', candidate.id]);
+    const json = create_cli_harness(cwd);
+    await json.run(['candidate', 'score', candidate.id, '--json']);
+
+    expect(text.stdout.join('\n')).toContain('status: recommended');
+    expect(JSON.parse(json.stdout[0])).toMatchObject({
+      ok: true,
+      data: { candidate: { id: candidate.id, status: 'recommended' } },
+    });
+  });
+
   it('shows Candidate with text and JSON output', async () => {
     const cwd = await create_temp_dir();
     const candidate = create_test_candidate();
@@ -108,25 +146,57 @@ describe('candidate CLI', () => {
     });
   });
 
-  it('returns structured error for missing Candidate and exposes no write commands', async () => {
+  it('selects recommended Candidate and supports JSON output', async () => {
     const cwd = await create_temp_dir();
-    const missing = create_cli_harness(cwd);
-    await missing.run([
+    const candidate = create_test_candidate({
+      id: 'cand_20260514_github_trending_select-me',
+      title: 'Select Me',
+      status: 'recommended',
+    });
+    await create_candidate(candidate, { cwd });
+
+    const text = create_cli_harness(cwd);
+    await text.run(['candidate', 'select', candidate.id]);
+    const second = create_test_candidate({
+      id: 'cand_20260514_github_trending_select-me-json',
+      title: 'Select Me JSON',
+      status: 'recommended',
+    });
+    await create_candidate(second, { cwd });
+    const json = create_cli_harness(cwd);
+    await json.run(['candidate', 'select', second.id, '--json']);
+
+    expect(text.stdout.join('\n')).toContain(`candidate_id: ${candidate.id}`);
+    expect(text.stdout.join('\n')).toContain('ingest_type: candidate_selected');
+    expect(text.stdout.join('\n')).toContain('Process source');
+    expect(JSON.parse(json.stdout[0])).toMatchObject({
+      ok: true,
+      data: {
+        candidate: { id: second.id, status: 'converted' },
+        source: { ingest_type: 'candidate_selected' },
+      },
+    });
+  });
+
+  it('returns structured errors for missing Candidate select/show', async () => {
+    const cwd = await create_temp_dir();
+    const missing_show = create_cli_harness(cwd);
+    await missing_show.run([
       'candidate',
       'show',
       'cand_20260514_github_trending_missing',
     ]);
-    const select = create_cli_harness(cwd);
-    await expect(
-      select.run([
-        'candidate',
-        'select',
-        'cand_20260514_github_trending_missing',
-      ]),
-    ).rejects.toThrow();
+    const missing_select = create_cli_harness(cwd);
+    await missing_select.run([
+      'candidate',
+      'select',
+      'cand_20260514_github_trending_missing',
+    ]);
 
-    expect(missing.exit_code).toBe(1);
-    expect(missing.stderr.join('\n')).toContain('code: NOT_FOUND');
+    expect(missing_show.exit_code).toBe(1);
+    expect(missing_show.stderr.join('\n')).toContain('code: NOT_FOUND');
+    expect(missing_select.exit_code).toBe(1);
+    expect(missing_select.stderr.join('\n')).toContain('code: NOT_FOUND');
   });
 });
 
@@ -177,8 +247,11 @@ async function collect_fixture(
     candidates: [
       {
         source_type: is_github ? 'github_trending' : 'hacker_news',
-        title: is_github ? 'GitHub Candidate' : 'Hacker News Candidate',
-        summary: 'Collected candidate summary.',
+        title: is_github
+          ? 'GitHub AI Agent Candidate'
+          : 'Hacker News AI Agent Candidate',
+        summary:
+          'A new AI agent research toolkit with practical tradeoff examples and implementation details.',
         url: is_github
           ? 'https://github.com/owner/repo'
           : 'https://example.com/hn-story',

@@ -20,6 +20,76 @@ describe('Source domain', () => {
     expect(source.note_ids).toEqual([]);
   });
 
+  it('accepts a Feishu Doc user import Source with metadata', () => {
+    const source = parse_source(
+      create_test_source({
+        id: 'src_20260514_feishu_doc_test-doc',
+        ingest_type: 'feishu_doc',
+        origin: {
+          type: 'user_import',
+          candidate_id: null,
+          user_input_type: 'feishu_doc',
+        },
+        metadata: {
+          feishu_doc: {
+            original_input: 'https://example.feishu.cn/docx/test',
+            title: 'Test Doc',
+            document_type: 'docx',
+            imported_at: '2026-05-14T00:00:00.000Z',
+          },
+        },
+      }),
+    );
+
+    expect(source.status).toBe('ingested');
+    expect(source.ingest_type).toBe('feishu_doc');
+    expect(source.content_type).toBe('document');
+    expect(source.origin.user_input_type).toBe('feishu_doc');
+    expect(source.metadata?.feishu_doc?.title).toBe('Test Doc');
+  });
+
+  it('rejects a Feishu Doc Source without metadata', () => {
+    const source = create_test_source({
+      id: 'src_20260514_feishu_doc_test-doc',
+      ingest_type: 'feishu_doc',
+      origin: {
+        type: 'user_import',
+        candidate_id: null,
+        user_input_type: 'feishu_doc',
+      },
+    });
+
+    expect(() => validate_source_invariants(source)).toThrow(
+      'feishu_doc source must have metadata.feishu_doc',
+    );
+  });
+
+  it('rejects a Feishu Doc Source with the wrong user input type', () => {
+    expect(() =>
+      parse_source(
+        create_test_source({
+          id: 'src_20260514_feishu_doc_test-doc',
+          ingest_type: 'feishu_doc',
+          origin: {
+            type: 'user_import',
+            candidate_id: null,
+            user_input_type: 'lark_doc',
+          },
+          metadata: {
+            feishu_doc: {
+              original_input: 'token',
+              title: 'Test Doc',
+              document_type: 'docx',
+              imported_at: '2026-05-14T00:00:00.000Z',
+            },
+          },
+        }),
+      ),
+    ).toThrow(
+      'feishu_doc source must have origin.user_input_type = feishu_doc',
+    );
+  });
+
   it('rejects user_import sources with origin_candidate_id', () => {
     const source = create_test_source({ origin_candidate_id: 'cand_1' });
 

@@ -44,6 +44,28 @@ export async function create_candidate(
   return parsed_candidate;
 }
 
+export async function update_candidate(
+  candidate: Candidate,
+  context: CandidateRepoContext = {},
+): Promise<Candidate> {
+  const parsed_candidate = parse_candidate(candidate);
+  const file_path = candidate_json_path(parsed_candidate.id, context);
+  if (!(await exists(file_path))) {
+    throw new StorageError({
+      code: 'NOT_FOUND',
+      message: `Candidate not found: ${parsed_candidate.id}`,
+      path: file_path,
+    });
+  }
+
+  await write_json({
+    file_path,
+    schema: CandidateSchema,
+    data: parsed_candidate,
+  });
+  return parsed_candidate;
+}
+
 export async function get_candidate(
   candidate_id: string,
   context: CandidateRepoContext = {},

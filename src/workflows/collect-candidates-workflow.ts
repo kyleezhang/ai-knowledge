@@ -1,5 +1,12 @@
+import {
+  detect_duplicate_candidate,
+  score_candidate,
+} from '../domain/candidate-recommendation.js';
 import type { StorageConfig } from '../storage/config.js';
-import { create_candidate } from '../storage/candidate-repo.js';
+import {
+  create_candidate,
+  list_candidates,
+} from '../storage/candidate-repo.js';
 import { StorageError } from '../storage/errors.js';
 import { collect_github_trending } from '../collectors/github-trending-collector.js';
 import { collect_hacker_news } from '../collectors/hacker-news-collector.js';
@@ -32,9 +39,22 @@ export type CollectCandidatesWorkflowInput = {
   collect?: () => Promise<CollectorResult>;
 };
 
+export type CollectedCandidateResult =
+  | {
+      status: 'created';
+      candidate: CandidateSummary;
+    }
+  | {
+      status: 'duplicate';
+      title: string;
+      reason: string;
+      existing_candidate_id: string;
+    };
+
 export type CollectCandidatesWorkflowData = {
   provider: CandidateCollectorProvider;
   candidates: CandidateSummary[];
+  results: CollectedCandidateResult[];
 };
 
 export async function collect_candidates_workflow(
@@ -54,26 +74,49 @@ export async function collect_candidates_workflow(
       };
     }
 
+    const context = { config: input.storage_config, cwd: input.cwd };
     const timestamp = (input.now ?? new Date()).toISOString();
-    const candidates = await Promise.all(
-      result.candidates.map(async (collected, index) =>
-        create_candidate(
-          build_new_candidate({
-            collected,
-            collected_at: timestamp,
-            suffix:
-              index === 0 ? undefined : String(index + 1).padStart(2, '0'),
-          }),
-          { config: input.storage_config, cwd: input.cwd },
-        ),
-      ),
-    );
+    const existing_candidates = await list_candidates({}, context);
+    const results: CollectedCandidateResult[] = [];
+    const candidates = [];
+
+    for (const [index, collected] of result.candidates.entries()) {
+      const candidate = build_new_candidate({
+        collected,
+        collected_at: timestamp,
+        suffix: index === 0 ? undefined : String(index + 1).padStart(2, '0'),
+      });
+      const duplicate = detect_duplicate_candidate(candidate, [
+        ...existing_candidates,
+        ...candidates,
+      ]);
+      if (duplicate.duplicate) {
+        results.push({
+          status: 'duplicate',
+          title: collected.title,
+          reason: duplicate.reason,
+          existing_candidate_id: duplicate.existing_candidate_id,
+        });
+        continue;
+      }
+
+      const saved = await create_candidate(
+        score_candidate(candidate, { scored_at: timestamp }),
+        context,
+      );
+      candidates.push(saved);
+      results.push({
+        status: 'created',
+        candidate: summarize_candidate(saved),
+      });
+    }
 
     return {
       ok: true,
       data: {
         provider: input.provider,
         candidates: candidates.map(summarize_candidate),
+        results,
       },
     };
   } catch (error) {

@@ -16,7 +16,7 @@ import { create_slug } from '../domain/slug.js';
 import { transition_source } from '../domain/state-machine.js';
 import type { StorageConfig } from '../storage/config.js';
 import { StorageError } from '../storage/errors.js';
-import { create_note, note_exists } from '../storage/note-repo.js';
+import { create_note, get_note, note_exists } from '../storage/note-repo.js';
 import { get_source, save_source } from '../storage/source-repo.js';
 import {
   evidence_locator_refs_from_segments,
@@ -38,6 +38,7 @@ export type ComposeNoteWorkflowInput = {
     llm_client: LlmClient;
     agent_input: Parameters<typeof note_agent>[0]['agent_input'];
   }) => Promise<NoteCandidate>;
+  confirmed_related_note_ids?: string[];
   save_source_fn?: typeof save_source;
 };
 
@@ -72,6 +73,13 @@ export async function compose_note_workflow(
     const allowed_evidence_refs = new Set(
       source_refs.flatMap((ref) => ref.evidence_refs),
     );
+    const confirmed_related_notes = await load_confirmed_related_notes(
+      input.confirmed_related_note_ids ?? [],
+      context,
+    );
+    const confirmed_related_note_ids = new Set(
+      confirmed_related_notes.map((note) => note.note_id),
+    );
     const llm_client =
       input.llm_client ?? create_llm_client({}, input.messages_api);
     const compose = input.compose ?? note_agent;
@@ -82,7 +90,7 @@ export async function compose_note_workflow(
         draft_understanding: source.draft_understanding,
         discussion_summary: source.discussion_summary,
         source_refs,
-        related_notes: [],
+        related_notes: confirmed_related_notes,
       },
     });
 
@@ -91,6 +99,15 @@ export async function compose_note_workflow(
     );
     if (unsupported.length > 0) {
       return invalid_input('Note conclusions must come from confirmed_points.');
+    }
+
+    const unconfirmed_related_note_ids = candidate.related_note_ids.filter(
+      (note_id) => !confirmed_related_note_ids.has(note_id),
+    );
+    if (unconfirmed_related_note_ids.length > 0) {
+      return invalid_input(
+        `Note related_note_ids must be confirmed before composition: ${unconfirmed_related_note_ids.join(', ')}`,
+      );
     }
 
     const invalid_evidence_refs = candidate.source_refs.flatMap((ref) =>
@@ -190,6 +207,39 @@ export async function compose_note_workflow(
       },
     };
   }
+}
+
+async function load_confirmed_related_notes(
+  note_ids: string[],
+  context: { config?: Partial<StorageConfig>; cwd?: string },
+): Promise<
+  Array<{
+    note_id: string;
+    title: string;
+    summary: string;
+    relevant_points: string[];
+  }>
+> {
+  const unique_note_ids = Array.from(new Set(note_ids));
+  const notes = await Promise.all(
+    unique_note_ids.map(async (note_id) => get_note(note_id, context)),
+  );
+
+  const non_approved = notes.filter((note) => note.status !== 'approved');
+  if (non_approved.length > 0) {
+    throw new Error(
+      `Confirmed related notes must be approved: ${non_approved
+        .map((note) => note.id)
+        .join(', ')}`,
+    );
+  }
+
+  return notes.map((note) => ({
+    note_id: note.id,
+    title: note.title,
+    summary: note.current_understanding,
+    relevant_points: note.conclusions,
+  }));
 }
 
 function build_source_refs(

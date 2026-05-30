@@ -2,6 +2,7 @@ import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { create_program, type CliIo } from '../../src/cli/index.js';
+import type { FeishuDocReader } from '../../src/workflows/feishu-doc-reader.js';
 import type {
   DiscussionAgentOutput,
   DraftUnderstandingCandidate,
@@ -30,6 +31,17 @@ async function fetch_html_fixture(): Promise<string> {
 async function reject_fetch_fixture(): Promise<string> {
   throw new Error('auth required');
 }
+
+const read_feishu_doc_fixture: FeishuDocReader = async () => ({
+  title: 'CLI Feishu Doc',
+  document_type: 'docx',
+  markdown: '# CLI Feishu Doc\n\nBody.\n',
+  raw_snapshot: { title: 'CLI Feishu Doc' },
+});
+
+const reject_feishu_doc_fixture: FeishuDocReader = async () => {
+  throw new Error('permission denied');
+};
 
 function source_id_from_output(output: string): string {
   const json = JSON.parse(output) as { ok: true; data: { source_id: string } };
@@ -195,6 +207,58 @@ describe('source CLI', () => {
     expect(harness.stdout.join('\n')).toContain('ingest_type: input_url');
     expect(harness.stdout.join('\n')).toContain('content_type: link');
     expect(harness.stdout.join('\n')).toContain('ai-knowledge source process');
+  });
+
+  it('ingests Feishu Doc with human-readable output', async () => {
+    const cwd = await create_temp_dir();
+    const harness = create_cli_harness(cwd, {
+      read_feishu_doc: read_feishu_doc_fixture,
+    });
+
+    await harness.run(['source', 'ingest', 'feishu-doc', 'doc_token']);
+
+    expect(harness.stdout.join('\n')).toContain('Source ingested.');
+    expect(harness.stdout.join('\n')).toContain('ingest_type: feishu_doc');
+    expect(harness.stdout.join('\n')).toContain('content_type: document');
+    expect(harness.stdout.join('\n')).toContain('ai-knowledge source process');
+  });
+
+  it('ingests Feishu Doc with JSON output', async () => {
+    const cwd = await create_temp_dir();
+    const harness = create_cli_harness(cwd, {
+      read_feishu_doc: read_feishu_doc_fixture,
+    });
+
+    await harness.run([
+      'source',
+      'ingest',
+      'feishu-doc',
+      'doc_token',
+      '--json',
+    ]);
+
+    const output = JSON.parse(harness.stdout[0]) as {
+      ok: true;
+      data: { source_id: string; source: { ingest_type: string } };
+      next_actions: Array<{ command: string }>;
+    };
+    expect(output.ok).toBe(true);
+    expect(output.data.source.ingest_type).toBe('feishu_doc');
+    expect(output.next_actions[0]?.command).toContain(
+      `ai-knowledge source process ${output.data.source_id}`,
+    );
+  });
+
+  it('rejects Feishu Doc ingest when the document cannot be read', async () => {
+    const cwd = await create_temp_dir();
+    const harness = create_cli_harness(cwd, {
+      read_feishu_doc: reject_feishu_doc_fixture,
+    });
+
+    await harness.run(['source', 'ingest', 'feishu-doc', 'doc_token']);
+
+    expect(harness.exit_code).toBe(1);
+    expect(harness.stderr.join('\n')).toContain('code: INVALID_INPUT');
   });
 
   it('rejects URL ingest when the page cannot be fetched', async () => {
@@ -408,25 +472,38 @@ describe('source CLI', () => {
     expect(harness.stdout.join('\n')).toContain('Reply: This matters.');
   });
 
-  it('approves directly in REPL with explicit user confirmation', async () => {
+  it('approves directly in REPL only after convergence', async () => {
     const cwd = await create_temp_dir();
     const missing_points_source_id = await ingest_process_understand(
       cwd,
       '# Approve Missing Points\n\nBody.\n',
     );
     const missing_points = create_cli_harness(cwd, {
-      repl_input: async_iter(['/approve', '/exit']),
+      repl_input: async_iter(['Need more discussion.', '/approve', '/exit']),
+      discuss: async () => ({
+        assistant_message: 'Need more confirmation.',
+        discussion_summary_update: {
+          confirmed_points: [],
+          open_questions: [],
+          unresolved_issues: [],
+          next_prompts: [],
+          ready_for_approval: false,
+        },
+      }),
     });
     await missing_points.run(['source', 'discuss', missing_points_source_id]);
-    expect(missing_points.stdout.join('\n')).toContain(
-      'Discussion is missing confirmed_points and cannot be approved yet.',
+    expect(missing_points.stderr.join('\n')).toContain(
+      'Discussion has not converged and cannot be approved.',
+    );
+    expect(missing_points.stderr.join('\n')).toContain(
+      'missing_confirmed_points',
     );
 
-    const explicit_source_id = await ingest_process_understand(
+    const blocked_source_id = await ingest_process_understand(
       cwd,
-      '# Explicit Approve\n\nBody.\n',
+      '# Blocked Approve\n\nBody.\n',
     );
-    const explicit_confirm = create_cli_harness(cwd, {
+    const blocked_confirm = create_cli_harness(cwd, {
       repl_input: async_iter(['Confirm this.', '/approve', '/exit']),
       discuss: async () => ({
         assistant_message: 'We have enough confirmed points.',
@@ -435,20 +512,17 @@ describe('source CLI', () => {
           open_questions: ['Question'],
           unresolved_issues: ['Issue'],
           next_prompts: [],
-          ready_for_approval: false,
+          ready_for_approval: true,
         },
       }),
     });
-    await explicit_confirm.run(['source', 'discuss', explicit_source_id]);
-    const explicit_output = explicit_confirm.stdout.join('\n');
-    expect(explicit_output).toContain(
-      'Warning: approving with model readiness still false or advisory open questions/unresolved issues preserved.',
+    await blocked_confirm.run(['source', 'discuss', blocked_source_id]);
+    const blocked_error = blocked_confirm.stderr.join('\n');
+    expect(blocked_error).toContain(
+      'Discussion has not converged and cannot be approved.',
     );
-    expect(explicit_output).toContain('Source approved for note.');
-    expect(explicit_output).toContain('status: approved_for_note');
-    expect(explicit_output).toContain(
-      `ai-knowledge note compose ${explicit_source_id}`,
-    );
+    expect(blocked_error).toContain('open_questions_present');
+    expect(blocked_error).toContain('unresolved_issues_present');
 
     const ready_source_id = await ingest_process_understand(
       cwd,
@@ -471,7 +545,6 @@ describe('source CLI', () => {
     const ready_output = ready.stdout.join('\n');
     expect(ready_output).toContain('Source approved for note.');
     expect(ready_output).toContain('status: approved_for_note');
-    expect(ready_output).not.toContain('Warning: approving');
   });
 
   it('understands PDF and URL sources from normalized artifacts only', async () => {
@@ -577,6 +650,74 @@ describe('source CLI', () => {
           },
         },
       },
+    });
+  });
+
+  it('processes Feishu Doc with human-readable output', async () => {
+    const cwd = await create_temp_dir();
+    const ingest_harness = create_cli_harness(cwd, {
+      read_feishu_doc: read_feishu_doc_fixture,
+    });
+    await ingest_harness.run([
+      'source',
+      'ingest',
+      'feishu-doc',
+      'doc_token',
+      '--json',
+    ]);
+    const source_id = source_id_from_output(ingest_harness.stdout[0]);
+    const process_harness = create_cli_harness(cwd);
+
+    await process_harness.run(['source', 'process', source_id]);
+
+    expect(process_harness.stdout.join('\n')).toContain('Source processed.');
+    expect(process_harness.stdout.join('\n')).toContain(
+      'ingest_type: feishu_doc',
+    );
+    expect(process_harness.stdout.join('\n')).toContain('status: processed');
+    expect(process_harness.stdout.join('\n')).toContain(
+      'processed/clean_text.md',
+    );
+    expect(process_harness.stdout.join('\n')).toContain(
+      `ai-knowledge source understand ${source_id}`,
+    );
+  });
+
+  it('supports JSON output for Feishu Doc source process', async () => {
+    const cwd = await create_temp_dir();
+    const ingest_harness = create_cli_harness(cwd, {
+      read_feishu_doc: read_feishu_doc_fixture,
+    });
+    await ingest_harness.run([
+      'source',
+      'ingest',
+      'feishu-doc',
+      'doc_token',
+      '--json',
+    ]);
+    const source_id = source_id_from_output(ingest_harness.stdout[0]);
+    const process_harness = create_cli_harness(cwd);
+
+    await process_harness.run(['source', 'process', source_id, '--json']);
+
+    expect(JSON.parse(process_harness.stdout[0])).toMatchObject({
+      ok: true,
+      data: {
+        source: {
+          ingest_type: 'feishu_doc',
+          status: 'processed',
+          processing_artifacts: {
+            clean_text: 'processed/clean_text.md',
+            segments: 'processed/segments.json',
+            metadata: 'processed/metadata.json',
+          },
+        },
+      },
+      next_actions: [
+        {
+          command: `ai-knowledge source understand ${source_id}`,
+        },
+      ],
     });
   });
 
@@ -729,8 +870,9 @@ describe('source CLI', () => {
 
     expect(no_points.exit_code).toBe(1);
     expect(no_points.stderr.join('\n')).toContain(
-      'Discussion must have confirmed_points before approval.',
+      'Discussion has not converged and cannot be approved.',
     );
+    expect(no_points.stderr.join('\n')).toContain('missing_confirmed_points');
   });
 
   it('composes, renders, lists, and shows Notes', async () => {
@@ -770,6 +912,82 @@ describe('source CLI', () => {
     await show_harness.run(['note', 'show', note_id]);
     expect(show_harness.stdout.join('\n')).toContain('conclusions:');
     expect(show_harness.stdout.join('\n')).not.toContain('## 当前理解');
+  });
+
+  it('discovers related Notes and composes with a confirmed related note', async () => {
+    const cwd = await create_temp_dir();
+    const related_note_id = await compose_cli_note(cwd, 'Agent Memory Related');
+    await lint_cli_note(cwd, related_note_id);
+    const approve_harness = create_cli_harness(cwd);
+    await approve_harness.run(['note', 'approve', related_note_id]);
+
+    const discover_harness = create_cli_harness(cwd);
+    await discover_harness.run([
+      'note',
+      'related',
+      'discover',
+      '--text',
+      'agent memory related learning',
+    ]);
+
+    const discover_output = discover_harness.stdout.join('\n');
+    expect(discover_output).toContain(`note_id: ${related_note_id}`);
+    expect(discover_output).toContain('reason: Shares approved note keywords');
+    expect(discover_output).toContain('status: pending');
+
+    const source_id = await create_approved_source(cwd);
+    const compose_harness = create_cli_harness(cwd, {
+      compose_note: async ({ agent_input }) => ({
+        title: 'With Related Note',
+        conclusions: agent_input.discussion_summary.confirmed_points,
+        why_it_matters: ['It matters.'],
+        current_understanding: 'Current understanding.',
+        open_questions: [],
+        related_note_ids: [related_note_id],
+        source_refs: agent_input.source_refs,
+      }),
+    });
+
+    await compose_harness.run([
+      'note',
+      'compose',
+      source_id,
+      '--related-note',
+      related_note_id,
+      '--json',
+    ]);
+
+    const compose_json = JSON.parse(compose_harness.stdout[0]) as {
+      ok: true;
+      data: { note: { related_note_ids: string[] } };
+    };
+    expect(compose_json.data.note.related_note_ids).toEqual([related_note_id]);
+  });
+
+  it('supports JSON output for related note discovery', async () => {
+    const cwd = await create_temp_dir();
+    const related_note_id = await compose_cli_note(cwd, 'JSON Related Agent');
+    await lint_cli_note(cwd, related_note_id);
+    const approve_harness = create_cli_harness(cwd);
+    await approve_harness.run(['note', 'approve', related_note_id]);
+    const discover_harness = create_cli_harness(cwd);
+
+    await discover_harness.run([
+      'note',
+      'related',
+      'discover',
+      '--text',
+      'json related agent',
+      '--json',
+    ]);
+
+    const output = JSON.parse(discover_harness.stdout[0]) as {
+      ok: true;
+      data: { candidates: Array<{ note_id: string; status: string }> };
+    };
+    expect(output.data.candidates).toEqual([
+      expect.objectContaining({ note_id: related_note_id, status: 'pending' }),
+    ]);
   });
 
   it('supports JSON output for note compose/render/list/show', async () => {
@@ -1227,6 +1445,7 @@ function create_cli_harness(
     }) => Promise<GroundedAnswer>;
     repl_input?: AsyncIterable<string>;
     fetch_html?: (url: string) => Promise<string>;
+    read_feishu_doc?: FeishuDocReader;
     process_pdf?: (input: {
       raw_pdf: Uint8Array;
       source_title: string;
@@ -1272,6 +1491,7 @@ function create_cli_harness(
         answer: options.answer,
         repl_input: options.repl_input,
         fetch_html: options.fetch_html,
+        read_feishu_doc: options.read_feishu_doc,
         process_pdf: options.process_pdf,
         process_url: options.process_url,
       }).parseAsync(['node', 'ai-knowledge', ...args]);

@@ -113,6 +113,114 @@ describe('source repo', () => {
     ).resolves.toContain('<h1>Article</h1>');
   });
 
+  it('creates Feishu Doc Source layout with Markdown and raw snapshot artifacts', async () => {
+    const cwd = await create_temp_dir();
+    const source = create_test_source({
+      id: 'src_20260514_feishu_doc_test-doc',
+      title: 'Test Doc',
+      ingest_type: 'feishu_doc',
+      origin: {
+        type: 'user_import',
+        candidate_id: null,
+        user_input_type: 'feishu_doc',
+      },
+      metadata: {
+        feishu_doc: {
+          original_input: 'https://example.feishu.cn/docx/test',
+          title: 'Test Doc',
+          document_type: 'docx',
+          imported_at: '2026-05-14T00:00:00.000Z',
+        },
+      },
+    });
+
+    await create_source(
+      {
+        source,
+        raw_artifacts: [
+          {
+            file_name: 'original.md',
+            content: '# Test Doc\n\nImported body.\n',
+          },
+          {
+            file_name: 'feishu-doc.json',
+            content: JSON.stringify({ title: 'Test Doc', blocks: [] }),
+          },
+        ],
+      },
+      { cwd },
+    );
+
+    const source_dir = path.join(
+      cwd,
+      'knowledge',
+      'sources',
+      '2026',
+      '05',
+      source.id,
+    );
+    await expect(
+      readFile(path.join(source_dir, 'source.json'), 'utf8'),
+    ).resolves.toContain('feishu_doc');
+    await expect(
+      readFile(path.join(source_dir, 'discussion.jsonl'), 'utf8'),
+    ).resolves.toBe('');
+    await expect(
+      readFile(path.join(source_dir, 'raw', 'original.md'), 'utf8'),
+    ).resolves.toBe('# Test Doc\n\nImported body.\n');
+    await expect(
+      readFile(path.join(source_dir, 'raw', 'feishu-doc.json'), 'utf8'),
+    ).resolves.toContain('Test Doc');
+    await expect(
+      stat(path.join(source_dir, 'processed')),
+    ).resolves.toBeTruthy();
+  });
+
+  it('rejects invalid Feishu Doc raw snapshot names without creating a Source', async () => {
+    const cwd = await create_temp_dir();
+    const source = create_test_source({
+      id: 'src_20260514_feishu_doc_bad-snapshot',
+      title: 'Bad Snapshot',
+      ingest_type: 'feishu_doc',
+      origin: {
+        type: 'user_import',
+        candidate_id: null,
+        user_input_type: 'feishu_doc',
+      },
+      metadata: {
+        feishu_doc: {
+          original_input: 'token',
+          title: 'Bad Snapshot',
+          document_type: 'docx',
+          imported_at: '2026-05-14T00:00:00.000Z',
+        },
+      },
+    });
+
+    await expect(
+      create_source(
+        {
+          source,
+          raw_artifacts: [
+            { file_name: 'original.md', content: '# Bad Snapshot\n' },
+            { file_name: '../feishu-doc.json', content: '{}' },
+          ],
+        },
+        { cwd },
+      ),
+    ).rejects.toThrow('Invalid raw file name');
+
+    const source_dir = path.join(
+      cwd,
+      'knowledge',
+      'sources',
+      '2026',
+      '05',
+      source.id,
+    );
+    await expect(stat(source_dir)).rejects.toThrow();
+  });
+
   it('rejects invalid raw file names when creating a Source', async () => {
     const cwd = await create_temp_dir();
     const source = create_test_source({

@@ -546,6 +546,8 @@ Markdown -> Source -> Processed Artifacts -> Draft Understanding
 
 ### Issue 16: 统一跨来源 evidence locator
 
+- **Status**: Done
+- **Archived change**: `openspec/changes/archive/2026-05-25-unify-evidence-locator/`
 - **Type**: AFK
 - **Blocked by**: Issue 8, Issue 14, Issue 15
 - **User stories covered**:
@@ -558,13 +560,13 @@ Markdown -> Source -> Processed Artifacts -> Draft Understanding
 
 #### Acceptance criteria
 
-- [ ] Markdown / PDF / URL 都产出统一的 `processed/segments.json` 基础结构
-- [ ] Markdown 现有 evidence refs 保持有效
-- [ ] PDF segment locator 能定位到页码或等价页内位置
-- [ ] URL segment locator 能定位到 heading_path、section 或等价正文位置
-- [ ] `Note.source_refs.evidence_refs` 继续只引用 processed artifacts，不直接引用 raw html / raw pdf
-- [ ] `note render`、`note show` 与后续 QA 规则在多来源输入下仍成立
-- [ ] `answer` 语义不变，仍然只基于 approved Notes 作答
+- [x] Markdown / PDF / URL 都产出统一的 `processed/segments.json` 基础结构
+- [x] Markdown 现有 evidence refs 保持有效
+- [x] PDF segment locator 能定位到页码或等价页内位置
+- [x] URL segment locator 能定位到 heading_path、section 或等价正文位置
+- [x] `Note.source_refs.evidence_refs` 继续只引用 processed artifacts，不直接引用 raw html / raw pdf
+- [x] `note render`、`note show` 与后续 QA 规则在多来源输入下仍成立
+- [x] `answer` 语义不变，仍然只基于 approved Notes 作答
 
 #### Blocked by
 
@@ -576,6 +578,8 @@ Markdown -> Source -> Processed Artifacts -> Draft Understanding
 
 ### Issue 17: P1 端到端验收用例（PDF / URL）
 
+- **Status**: Done
+- **Archived change**: `openspec/changes/archive/2026-05-26-p1-end-to-end-acceptance-pdf-url/`
 - **Type**: HITL
 - **Blocked by**: Issue 13-16
 - **User stories covered**:
@@ -594,16 +598,16 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 #### Acceptance criteria
 
-- [ ] 有一份可稳定抽取文本的 PDF fixture
-- [ ] 有一个可稳定抓取的 URL fixture（本地 test server 或 mocked public page）
-- [ ] PDF happy path 可以从空 `knowledge/` 跑到 approved Note 与 answer
-- [ ] URL happy path 可以从空 `knowledge/` 跑到 approved Note 与 answer
-- [ ] 验收中确认：URL fetch 失败会明确报错
-- [ ] 验收中确认：不支持的网页 content-type 会明确报错
-- [ ] 验收中确认：PDF 抽取失败会明确报错
-- [ ] 验收中确认：没有讨论确认不能生成 Note
-- [ ] 验收中确认：没有 QA passed 不能 approve Note
-- [ ] 人工确认 CLI 交互体验与来源追溯信息可接受
+- [x] 有一份可稳定抽取文本的 PDF fixture
+- [x] 有一个可稳定抓取的 URL fixture（本地 test server 或 mocked public page）
+- [x] PDF happy path 可以从空 `knowledge/` 跑到 approved Note 与 answer
+- [x] URL happy path 可以从空 `knowledge/` 跑到 approved Note 与 answer
+- [x] 验收中确认：URL fetch 失败会明确报错
+- [x] 验收中确认：不支持的网页 content-type 会明确报错
+- [x] 验收中确认：PDF 抽取失败会明确报错
+- [x] 验收中确认：没有讨论确认不能生成 Note
+- [x] 验收中确认：没有 QA passed 不能 approve Note
+- [x] 人工确认 CLI 交互体验与来源追溯信息可接受
 
 #### Blocked by
 
@@ -616,6 +620,8 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 ### Issue 18: 实现 Candidate domain schema/type
 
+- **Status**: Done
+- **Archived change**: `openspec/changes/archive/2026-05-27-implement-candidate-domain-schema-type/`
 - **Type**: AFK
 - **Blocked by**: Issue 1
 - **User stories covered**:
@@ -628,15 +634,15 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 #### Acceptance criteria
 
-- [ ] 新增 `src/domain/candidate.ts`
-- [ ] 支持 `source_type = github_trending | hacker_news`
-- [ ] 支持状态：`new | recommended | dismissed | selected | converted`
-- [ ] 支持 score breakdown：`relevance`、`learning_value`、`novelty`、`discussability`
-- [ ] 校验每个 score 子项范围为 0-3
-- [ ] 校验 `score.total` 等于 breakdown 汇总
-- [ ] 校验 `status = converted` 时 `converted_source_id` 非空
-- [ ] 导出 `CandidateSchema`、`CandidateStatusSchema`、`parse_candidate`
-- [ ] 覆盖 domain 单元测试
+- [x] 新增 `src/domain/candidate.ts`
+- [x] 支持 `source_type = github_trending | hacker_news`
+- [x] 支持状态：`new | recommended | dismissed | selected | converted`
+- [x] 支持 score breakdown：`relevance`、`learning_value`、`novelty`、`discussability`
+- [x] 校验每个 score 子项范围为 0-3
+- [x] 校验 `score.total` 等于 breakdown 汇总
+- [x] 校验 `status = converted` 时 `converted_source_id` 非空
+- [x] 导出 `CandidateSchema`、`CandidateStatusSchema`、`parse_candidate`
+- [x] 覆盖 domain 单元测试
 
 #### Blocked by
 
@@ -646,6 +652,8 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 ### Issue 19: Candidate 存储与只读查看
 
+- **Status**: Done
+- **Archived change**: `openspec/changes/archive/2026-05-27-candidate-storage-readonly-view/`
 - **Type**: AFK
 - **Blocked by**: Issue 18
 - **User stories covered**:
@@ -658,16 +666,16 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 #### Acceptance criteria
 
-- [ ] 新增 `candidate-repo` 或等价 storage 模块
-- [ ] Candidate 保存到 `knowledge/candidates/YYYY/MM/cand_xxx.json`
-- [ ] 支持 `candidate list`
-- [ ] 支持 `candidate list --status <status>`
-- [ ] 支持 `candidate show <candidate_id>`
-- [ ] list 默认按 `collected_at desc`
-- [ ] 读写 JSON 时通过 `CandidateSchema` parse
-- [ ] 不把 Candidate 写入 `knowledge/index/`
-- [ ] 支持 `--json`
-- [ ] 覆盖 storage、workflow、CLI 测试
+- [x] 新增 `candidate-repo` 或等价 storage 模块
+- [x] Candidate 保存到 `knowledge/candidates/YYYY/MM/cand_xxx.json`
+- [x] 支持 `candidate list`
+- [x] 支持 `candidate list --status <status>`
+- [x] 支持 `candidate show <candidate_id>`
+- [x] list 默认按 `collected_at desc`
+- [x] 读写 JSON 时通过 `CandidateSchema` parse
+- [x] 不把 Candidate 写入 `knowledge/index/`
+- [x] 支持 `--json`
+- [x] 覆盖 storage、workflow、CLI 测试
 
 #### Blocked by
 
@@ -677,6 +685,8 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 ### Issue 20: GitHub Trending / Hacker News 采集器
 
+- **Status**: Done
+- **Archived change**: `openspec/changes/archive/2026-05-27-github-trending-hacker-news-collectors/`
 - **Type**: AFK
 - **Blocked by**: Issue 19
 - **User stories covered**:
@@ -689,15 +699,15 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 #### Acceptance criteria
 
-- [ ] 新增 GitHub Trending collector
-- [ ] 新增 Hacker News collector
-- [ ] collector 输出统一 Candidate 创建输入
-- [ ] Candidate 记录 title、summary、url、author、published_at、collected_at、tags、external_ref
-- [ ] 采集失败返回结构化错误，不产生半成品 Candidate
-- [ ] 外部请求可 mock，测试不依赖真实网络
-- [ ] 不采集 AI 主题以外的大量泛内容作为主路径
-- [ ] 不直接创建 Source
-- [ ] 不直接进入 Note 或 Index
+- [x] 新增 GitHub Trending collector
+- [x] 新增 Hacker News collector
+- [x] collector 输出统一 Candidate 创建输入
+- [x] Candidate 记录 title、summary、url、author、published_at、collected_at、tags、external_ref
+- [x] 采集失败返回结构化错误，不产生半成品 Candidate
+- [x] 外部请求可 mock，测试不依赖真实网络
+- [x] 不采集 AI 主题以外的大量泛内容作为主路径
+- [x] 不直接创建 Source
+- [x] 不直接进入 Note 或 Index
 
 #### Blocked by
 
@@ -707,6 +717,8 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 ### Issue 21: Candidate 去重、过滤与评分推荐
 
+- **Status**: Done
+- **Archived change**: `openspec/changes/archive/2026-05-27-candidate-dedupe-filter-score-recommend/`
 - **Type**: AFK
 - **Blocked by**: Issue 20
 - **User stories covered**:
@@ -719,15 +731,15 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 #### Acceptance criteria
 
-- [ ] 根据 canonical URL / external_ref / title slug 做去重
-- [ ] 重复 Candidate 不创建新的推荐项
-- [ ] 实现基础过滤规则，排除明显不相关内容
-- [ ] 实现 score breakdown 四项评分
-- [ ] 达到阈值后状态进入 `recommended`
-- [ ] 未达阈值或被过滤后状态进入 `dismissed`
-- [ ] score reason 说明推荐原因
-- [ ] 支持重新评分单个 Candidate
-- [ ] 覆盖 dedupe、filter、scoring 单元测试
+- [x] 根据 canonical URL / external_ref / title slug 做去重
+- [x] 重复 Candidate 不创建新的推荐项
+- [x] 实现基础过滤规则，排除明显不相关内容
+- [x] 实现 score breakdown 四项评分
+- [x] 达到阈值后状态进入 `recommended`
+- [x] 未达阈值或被过滤后状态进入 `dismissed`
+- [x] score reason 说明推荐原因
+- [x] 支持重新评分单个 Candidate
+- [x] 覆盖 dedupe、filter、scoring 单元测试
 
 #### Blocked by
 
@@ -737,6 +749,8 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 ### Issue 22: Candidate 选中并转换为 Source
 
+- **Status**: Done
+- **Archived change**: `openspec/changes/archive/2026-05-27-candidate-select-convert-source/`
 - **Type**: HITL
 - **Blocked by**: Issue 21, Issue 2
 - **User stories covered**:
@@ -749,17 +763,17 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 #### Acceptance criteria
 
-- [ ] 支持 `ai-knowledge candidate select <candidate_id>`
-- [ ] 只允许 `recommended` Candidate 被选中
-- [ ] Candidate 状态流转：`recommended -> selected -> converted`
-- [ ] 创建 `Source.status = ingested`
-- [ ] Source 使用 `ingest_type = candidate_selected`
-- [ ] Source 使用 `origin.type = candidate`
-- [ ] 写入 `Source.origin_candidate_id`
-- [ ] 写入 `Candidate.converted_source_id`
-- [ ] 转换后输出 next action：`ai-knowledge source process <source_id>`
-- [ ] 不允许同一 Candidate 重复转换
-- [ ] 支持 `--json`
+- [x] 支持 `ai-knowledge candidate select <candidate_id>`
+- [x] 只允许 `recommended` Candidate 被选中
+- [x] Candidate 状态流转：`recommended -> selected -> converted`
+- [x] 创建 `Source.status = ingested`
+- [x] Source 使用 `ingest_type = candidate_selected`
+- [x] Source 使用 `origin.type = candidate`
+- [x] 写入 `Source.origin_candidate_id`
+- [x] 写入 `Candidate.converted_source_id`
+- [x] 转换后输出 next action：`ai-knowledge source process <source_id>`
+- [x] 不允许同一 Candidate 重复转换
+- [x] 支持 `--json`
 
 #### Blocked by
 
@@ -770,6 +784,8 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 ### Issue 23: 自动采集候选池端到端验收
 
+- **Status**: Done
+- **Archived change**: `openspec/changes/archive/2026-05-30-candidate-pool-end-to-end-acceptance/`
 - **Type**: HITL
 - **Blocked by**: Issue 20, Issue 21, Issue 22
 - **User stories covered**:
@@ -782,13 +798,13 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 #### Acceptance criteria
 
-- [ ] 有 GitHub Trending fixture
-- [ ] 有 Hacker News fixture
-- [ ] 可以从空 `knowledge/` 生成 recommended Candidate
-- [ ] 用户选择后可以转换为 Source
-- [ ] 转换后的 Source 可继续 process / understand / discuss / approve / note / index / answer
-- [ ] 验收中确认 Candidate 不会直接进入 Index
-- [ ] 验收中确认未选中 Candidate 不会创建 Source
+- [x] 有 GitHub Trending fixture
+- [x] 有 Hacker News fixture
+- [x] 可以从空 `knowledge/` 生成 recommended Candidate
+- [x] 用户选择后可以转换为 Source
+- [x] 转换后的 Source 可继续 process / understand / discuss / approve / note / index / answer
+- [x] 验收中确认 Candidate 不会直接进入 Index
+- [x] 验收中确认未选中 Candidate 不会创建 Source
 
 #### Blocked by
 
@@ -800,6 +816,8 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 ### Issue 24: 导入飞书文档为 Source
 
+- **Status**: Done
+- **Archived change**: `openspec/changes/archive/2026-05-29-import-feishu-doc-as-source/`
 - **Type**: AFK
 - **Blocked by**: Issue 2
 - **User stories covered**:
@@ -812,15 +830,15 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 #### Acceptance criteria
 
-- [ ] 支持 `ai-knowledge source ingest lark-doc <doc_url_or_token>`
-- [ ] `ingest_type = lark_doc`
-- [ ] `origin.user_input_type = lark_doc`
-- [ ] Source 初始状态为 `ingested`
-- [ ] 保存文档 token / URL 元信息
-- [ ] 保存可追溯的 raw 快照或 raw metadata
-- [ ] 权限不足时返回结构化错误
-- [ ] 不支持批量同步整个知识库空间
-- [ ] 支持 `--json`
+- [x] 支持 `ai-knowledge source ingest feishu-doc <doc_url_or_token>`
+- [x] `ingest_type = feishu_doc`
+- [x] `origin.user_input_type = feishu_doc`
+- [x] Source 初始状态为 `ingested`
+- [x] 保存文档 token / URL 元信息
+- [x] 保存可追溯的 raw 快照或 raw metadata
+- [x] 权限不足时返回结构化错误
+- [x] 不支持批量同步整个知识库空间
+- [x] 支持 `--json`
 
 #### Blocked by
 
@@ -830,6 +848,10 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 ### Issue 25: 处理飞书文档 Source 生成 processed artifacts
 
+- **Status**: Done
+- **Archived changes**:
+  - `openspec/changes/archive/2026-05-30-process-feishu-doc-source-artifacts/`
+  - `openspec/changes/archive/2026-05-29-import-feishu-doc-as-source/`
 - **Type**: AFK
 - **Blocked by**: Issue 24, Issue 3
 - **User stories covered**:
@@ -842,15 +864,15 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 #### Acceptance criteria
 
-- [ ] `source process` 可识别 `lark_doc` Source
-- [ ] 生成 `processed/clean_text.md`
-- [ ] 生成 `processed/segments.json`
-- [ ] 生成 `processed/metadata.json`
-- [ ] segment locator 能定位到文档块、标题路径或等价位置
-- [ ] metadata 记录文档标题、所有者、更新时间等可用信息
-- [ ] 处理失败时 Source 进入 `failed` 并写 `last_error.stage = processing`
-- [ ] 不改变 understand / discuss / approve / note / answer 的主语义
-- [ ] 支持 `--json`
+- [x] `source process` 可识别 `feishu_doc` Source
+- [x] 生成 `processed/clean_text.md`
+- [x] 生成 `processed/segments.json`
+- [x] 生成 `processed/metadata.json`
+- [x] segment locator 能定位到标题路径或等价 imported document position，且 `locator.source_kind = feishu_doc`
+- [x] metadata 记录文档标题等可用信息
+- [x] 处理失败时 Source 进入 `failed` 并写 `last_error.stage = processing`
+- [x] 不改变 understand / discuss / approve / note / answer 的主语义
+- [x] 支持 `--json`
 
 #### Blocked by
 
@@ -861,6 +883,8 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 ### Issue 26: 讨论收敛规则检查器
 
+- **Status**: Done
+- **Archived change**: `openspec/changes/archive/2026-05-30-discussion-convergence-rule-checker/`
 - **Type**: AFK
 - **Blocked by**: Issue 6, Issue 7
 - **User stories covered**:
@@ -873,15 +897,15 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 #### Acceptance criteria
 
-- [ ] 新增 convergence checker 模块
-- [ ] 检查 `confirmed_points` 非空
-- [ ] 检查至少存在价值判断或等价 `why_it_matters` 材料
-- [ ] 检查关键不确定性已进入 `open_questions` 或 `unresolved_issues`
-- [ ] 检查没有阻塞型 open question 时才允许 approve
-- [ ] `discussion_summary.ready_for_approval` 只是输入信号之一
-- [ ] `source approve` 使用 checker 返回明确失败原因
-- [ ] `/approve` 命令展示 checker 结果
-- [ ] 覆盖 convergence 单元测试
+- [x] 新增 convergence checker 模块
+- [x] 检查 `confirmed_points` 非空
+- [x] 检查 `ready_for_approval = true`
+- [x] 检查没有 `open_questions` 时才允许 approve
+- [x] 检查没有 `unresolved_issues` 时才允许 approve
+- [x] `discussion_summary.ready_for_approval` 只是输入信号之一
+- [x] `source approve` 使用 checker 返回明确失败原因
+- [x] `/approve` 命令展示 checker 结果
+- [x] 覆盖 convergence 单元测试、workflow 测试与 CLI 测试
 
 #### Blocked by
 
@@ -1176,7 +1200,7 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 #### Acceptance criteria
 
-- [ ] 覆盖 Markdown / PDF / URL / Lark Doc 主动导入 happy path
+- [ ] 覆盖 Markdown / PDF / URL / Feishu Doc 主动导入 happy path
 - [ ] 覆盖 GitHub Trending / Hacker News 自动采集 fixture
 - [ ] 覆盖 Candidate 推荐与选中转 Source
 - [ ] 覆盖 discussion convergence checker

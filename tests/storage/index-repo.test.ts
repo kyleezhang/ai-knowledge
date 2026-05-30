@@ -34,6 +34,16 @@ describe('index repo', () => {
     expect(entry.tags).toEqual(['seg_0001']);
   });
 
+  it('copies related_note_ids from approved note JSON', () => {
+    const note = approved_note();
+    const entry = build_index_entry({
+      ...note,
+      related_note_ids: ['note_20260514_related'],
+    });
+
+    expect(entry.related_note_ids).toEqual(['note_20260514_related']);
+  });
+
   it('rejects indexing non-approved notes', () => {
     expect(() => build_index_entry(create_test_note())).toThrow(
       'Only approved notes can be indexed.',

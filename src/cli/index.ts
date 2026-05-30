@@ -25,9 +25,12 @@ import {
   type CandidateCollectorProvider,
 } from '../workflows/collect-candidates-workflow.js';
 import { compose_note_workflow } from '../workflows/compose-note-workflow.js';
+import { discover_related_notes_workflow } from '../workflows/discover-related-notes-workflow.js';
 import { discuss_source_workflow } from '../workflows/discuss-source-workflow.js';
 import { index_note_workflow } from '../workflows/index-note-workflow.js';
 import { init_workflow } from '../workflows/init-workflow.js';
+import type { FeishuDocReader } from '../workflows/feishu-doc-reader.js';
+import { ingest_feishu_doc_workflow } from '../workflows/ingest-feishu-doc-workflow.js';
 import { ingest_markdown_workflow } from '../workflows/ingest-markdown-workflow.js';
 import { ingest_pdf_workflow } from '../workflows/ingest-pdf-workflow.js';
 import { ingest_url_workflow } from '../workflows/ingest-url-workflow.js';
@@ -37,6 +40,8 @@ import { list_notes_workflow } from '../workflows/list-notes-workflow.js';
 import { list_sources_workflow } from '../workflows/list-sources-workflow.js';
 import { process_source_workflow } from '../workflows/process-source-workflow.js';
 import { render_note_workflow } from '../workflows/render-note-workflow.js';
+import { score_candidate_workflow } from '../workflows/score-candidate-workflow.js';
+import { select_candidate_workflow } from '../workflows/select-candidate-workflow.js';
 import { show_candidate_workflow } from '../workflows/show-candidate-workflow.js';
 import { show_note_workflow } from '../workflows/show-note-workflow.js';
 import { show_source_workflow } from '../workflows/show-source-workflow.js';
@@ -75,6 +80,7 @@ export function create_program(
     }) => Promise<GroundedAnswer>;
     repl_input?: AsyncIterable<string>;
     fetch_html?: (url: string) => Promise<string>;
+    read_feishu_doc?: FeishuDocReader;
     process_pdf?: (input: {
       raw_pdf: Uint8Array;
       source_title: string;
@@ -142,9 +148,7 @@ export function create_program(
       if (!handle_result(result, io)) {
         return;
       }
-      for (const candidate_summary of result.data.candidates) {
-        print_candidate_summary(candidate_summary, io);
-      }
+      print_collect_candidate_results(result.data.results, io);
     });
 
   candidate_collect
@@ -168,9 +172,51 @@ export function create_program(
       if (!handle_result(result, io)) {
         return;
       }
-      for (const candidate_summary of result.data.candidates) {
-        print_candidate_summary(candidate_summary, io);
+      print_collect_candidate_results(result.data.results, io);
+    });
+
+  candidate
+    .command('select')
+    .argument('<candidate_id>')
+    .option('--json', 'Output JSON')
+    .description('Select a recommended Candidate and convert it to a Source.')
+    .action(async (candidate_id: string, options: { json?: boolean }) => {
+      const result = await select_candidate_workflow({
+        candidate_id,
+        cwd: input.cwd,
+      });
+
+      if (options.json) {
+        print_json_result(result, io);
+        return;
       }
+      if (!handle_result(result, io)) {
+        return;
+      }
+      io.stdout(`candidate_id: ${result.data.candidate.id}`);
+      print_source_summary(result.data.source, io);
+      print_next_actions(result.next_actions, io);
+    });
+
+  candidate
+    .command('score')
+    .argument('<candidate_id>')
+    .option('--json', 'Output JSON')
+    .description('Score and recommend a Candidate.')
+    .action(async (candidate_id: string, options: { json?: boolean }) => {
+      const result = await score_candidate_workflow({
+        candidate_id,
+        cwd: input.cwd,
+      });
+
+      if (options.json) {
+        print_json_result(result, io);
+        return;
+      }
+      if (!handle_result(result, io)) {
+        return;
+      }
+      print_candidate_summary(result.data.candidate, io);
     });
 
   candidate
@@ -327,6 +373,32 @@ export function create_program(
       print_next_actions(result.next_actions, io);
     });
 
+  source_ingest
+    .command('feishu-doc')
+    .argument('<doc_url_or_token>')
+    .option('--json', 'Output JSON')
+    .description('Ingest an explicit Feishu Doc as a Source.')
+    .action(async (doc_url_or_token: string, options: { json?: boolean }) => {
+      const result = await ingest_feishu_doc_workflow({
+        doc_url_or_token,
+        cwd: input.cwd,
+        read_feishu_doc: input.read_feishu_doc,
+      });
+
+      if (options.json) {
+        print_json_result(result, io);
+        return;
+      }
+
+      if (!handle_result(result, io)) {
+        return;
+      }
+
+      io.stdout('Source ingested.');
+      print_source_summary(result.data.source, io);
+      print_next_actions(result.next_actions, io);
+    });
+
   source
     .command('process')
     .argument('<source_id>')
@@ -466,27 +538,79 @@ export function create_program(
     .command('compose')
     .argument('<source_id>')
     .option('--json', 'Output JSON')
+    .option('--related-note <note_id...>', 'Confirmed related Note id')
     .description('Compose a draft Note from an approved Source.')
-    .action(async (source_id: string, options: { json?: boolean }) => {
-      const result = await compose_note_workflow({
-        source_id,
-        cwd: input.cwd,
-        compose: input.compose_note,
-      });
+    .action(
+      async (
+        source_id: string,
+        options: { json?: boolean; relatedNote?: string[] },
+      ) => {
+        const result = await compose_note_workflow({
+          source_id,
+          cwd: input.cwd,
+          compose: input.compose_note,
+          confirmed_related_note_ids: options.relatedNote ?? [],
+        });
 
-      if (options.json) {
-        print_json_result(result, io);
-        return;
-      }
+        if (options.json) {
+          print_json_result(result, io);
+          return;
+        }
 
-      if (!handle_result(result, io)) {
-        return;
-      }
+        if (!handle_result(result, io)) {
+          return;
+        }
 
-      io.stdout('Note composed.');
-      print_note_summary(result.data.note, io);
-      print_next_actions(result.next_actions, io);
-    });
+        io.stdout('Note composed.');
+        print_note_summary(result.data.note, io);
+        print_next_actions(result.next_actions, io);
+      },
+    );
+
+  const note_related = note
+    .command('related')
+    .description('Discover and confirm related Notes.');
+
+  note_related
+    .command('discover')
+    .option('--note <note_id>', 'Discover related Notes for an existing Note')
+    .option('--text <text>', 'Discover related Notes for source text')
+    .option('--exclude <note_id...>', 'Exclude Note ids')
+    .option('--json', 'Output JSON')
+    .description('Discover related Note candidates from approved Notes.')
+    .action(
+      async (options: {
+        note?: string;
+        text?: string;
+        exclude?: string[];
+        json?: boolean;
+      }) => {
+        const result = await discover_related_notes_workflow({
+          note_id: options.note,
+          source_text: options.text,
+          exclude_note_ids: options.exclude,
+          cwd: input.cwd,
+        });
+
+        if (options.json) {
+          print_json_result(result, io);
+          return;
+        }
+
+        if (!handle_result(result, io)) {
+          return;
+        }
+
+        if (result.data.candidates.length === 0) {
+          io.stdout('No related note candidates found.');
+          return;
+        }
+
+        for (const candidate of result.data.candidates) {
+          print_related_note_candidate(candidate, io);
+        }
+      },
+    );
 
   note
     .command('render')
@@ -738,22 +862,6 @@ async function handle_discuss_command(
     return { handled: true };
   }
   if (command === '/approve') {
-    const summary = raw_source.discussion_summary;
-    if (summary.confirmed_points.length === 0) {
-      input.io.stdout(
-        'Discussion is missing confirmed_points and cannot be approved yet.',
-      );
-      return { handled: true };
-    }
-
-    const has_advisory_blockers =
-      summary.open_questions.length > 0 || summary.unresolved_issues.length > 0;
-    if (!summary.ready_for_approval || has_advisory_blockers) {
-      input.io.stdout(
-        'Warning: approving with model readiness still false or advisory open questions/unresolved issues preserved.',
-      );
-    }
-
     const result = await approve_source_workflow({
       source_id: input.source_id,
       cwd: input.cwd,
@@ -818,6 +926,22 @@ function print_error(error: WorkflowError, io: CliIo): void {
   io.stderr('Cannot complete command:');
   io.stderr(`  reason: ${error.message}`);
   io.stderr(`  code: ${error.code}`);
+  const details = format_error_details(error.details);
+  if (details !== undefined) {
+    io.stderr(`  details: ${details}`);
+  }
+}
+
+function format_error_details(details: unknown): string | undefined {
+  if (details === undefined) {
+    return undefined;
+  }
+
+  if (typeof details === 'string') {
+    return details;
+  }
+
+  return JSON.stringify(details);
 }
 
 function print_next_actions(
@@ -869,6 +993,33 @@ function print_grounded_answer(answer: GroundedAnswer, io: CliIo): void {
   }
 }
 
+function print_collect_candidate_results(
+  results: Array<
+    | {
+        status: 'created';
+        candidate: Parameters<typeof print_candidate_summary>[0];
+      }
+    | {
+        status: 'duplicate';
+        title: string;
+        reason: string;
+        existing_candidate_id: string;
+      }
+  >,
+  io: CliIo,
+): void {
+  for (const result of results) {
+    if (result.status === 'created') {
+      io.stdout(`created: ${result.candidate.id}`);
+      print_candidate_summary(result.candidate, io);
+    } else {
+      io.stdout(
+        `duplicate: ${result.title} (${result.reason}) -> ${result.existing_candidate_id}`,
+      );
+    }
+  }
+}
+
 function print_candidate_summary(
   candidate_summary: {
     id: string;
@@ -895,6 +1046,16 @@ function print_candidate_summary(
     `converted_source_id: ${candidate_summary.converted_source_id ?? ''}`,
   );
   io.stdout(`summary: ${candidate_summary.summary}`);
+}
+
+function print_related_note_candidate(
+  candidate: { note_id: string; title: string; reason: string; status: string },
+  io: CliIo,
+): void {
+  io.stdout(`note_id: ${candidate.note_id}`);
+  io.stdout(`title: ${candidate.title}`);
+  io.stdout(`reason: ${candidate.reason}`);
+  io.stdout(`status: ${candidate.status}`);
 }
 
 function print_note_summary(

@@ -32,6 +32,7 @@ export type ProcessSourceWorkflowInput = {
     raw_markdown: string;
     source_title: string;
     processed_at: string;
+    source_kind?: 'markdown' | 'feishu_doc';
   }) => DocumentProcessingResult;
   process_pdf?: (input: {
     raw_pdf: Uint8Array;
@@ -174,7 +175,11 @@ async function dispatch_processing(input: {
   timestamp: string;
   context: { config?: Partial<StorageConfig>; cwd?: string };
 }): Promise<DocumentProcessingResult> {
-  if (input.source.ingest_type === 'upload_markdown') {
+  if (
+    input.source.ingest_type === 'upload_markdown' ||
+    input.source.ingest_type === 'candidate_selected' ||
+    input.source.ingest_type === 'feishu_doc'
+  ) {
     const raw_markdown = await read_raw_original_markdown(
       input.source.id,
       input.context,
@@ -185,6 +190,8 @@ async function dispatch_processing(input: {
       raw_markdown,
       source_title: input.source.title,
       processed_at: input.timestamp,
+      source_kind:
+        input.source.ingest_type === 'feishu_doc' ? 'feishu_doc' : 'markdown',
     });
   }
 

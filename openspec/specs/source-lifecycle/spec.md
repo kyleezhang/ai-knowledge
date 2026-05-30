@@ -30,6 +30,23 @@ The system SHALL create the P0 Source filesystem layout when importing Markdown.
 - **AND** a `processed/` directory exists for future processing artifacts
 - **AND** `processing_artifacts` remains empty until the processing workflow runs
 
+### Requirement: Candidate Selection Creates Source
+系统 SHALL allow selected recommended Candidates to create Sources through an explicit user action. Candidate-created Sources MUST use `ingest_type = candidate_selected`, `origin.type = candidate`, and MUST start at `ingested` status.
+
+#### Scenario: Candidate Source is created
+- **WHEN** Candidate select workflow creates a Source from a Candidate
+- **THEN** Source status MUST be `ingested`
+- **AND** Source ingest_type MUST be `candidate_selected`
+- **AND** Source content_type MUST be `link`
+- **AND** Source origin.type MUST be `candidate`
+- **AND** Source origin.candidate_id MUST equal the Candidate id
+- **AND** Source origin_candidate_id MUST equal the Candidate id
+
+#### Scenario: Candidate Source preserves raw material
+- **WHEN** Candidate select workflow creates a Source
+- **THEN** Source raw artifact MUST preserve Candidate title、summary、url、tags and source_type in a processable Markdown file
+- **AND** processing_artifacts MUST remain empty until source process runs
+
 ### Requirement: Source List Shows Workflow Queue
 
 The system SHALL allow users to list imported Sources without changing their workflow state.
@@ -163,12 +180,15 @@ The system SHALL treat automatic candidate conversion as outside P0 unless a lat
 - **AND** no main knowledge object is created from the candidate
 
 ### Requirement: Source Approval Advances To Note Readiness
-The system SHALL expose `ai-knowledge source approve <source_id>` to move a converged and explicitly confirmed Source from `discussing` to `approved_for_note`.
+The system SHALL expose `ai-knowledge source approve <source_id>` to move a converged and explicitly confirmed Source from `discussing` to `approved_for_note`. Approval MUST use the deterministic discussion convergence checker and MUST reject approval when the checker fails.
 
 #### Scenario: Source approval succeeds
 - **WHEN** a Source has status `discussing`
 - **AND** `discussion_summary.ready_for_approval = true`
 - **AND** `discussion_summary.confirmed_points` is non-empty
+- **AND** `discussion_summary.open_questions` is empty
+- **AND** `discussion_summary.unresolved_issues` is empty
+- **AND** the deterministic discussion convergence checker passes
 - **THEN** the workflow transitions the Source to `approved_for_note`
 - **AND** sets `discussion_summary.discussion_status = closed`
 - **AND** returns next action `ai-knowledge note compose <source_id>`
@@ -183,6 +203,12 @@ The system SHALL expose `ai-knowledge source approve <source_id>` to move a conv
 - **THEN** the CLI returns a JSON representation of the workflow result
 - **AND** the JSON includes the approved Source summary and next action
 
+#### Scenario: Convergence checker rejects approval
+- **WHEN** `ai-knowledge source approve <source_id>` is run for a Source whose discussion summary does not pass the deterministic convergence checker
+- **THEN** the workflow rejects the operation
+- **AND** the error includes at least one convergence failure reason
+- **AND** leaves the existing Source status unchanged
+
 ### Requirement: Source Records Composed Notes
 The system SHALL record Note ids on the Source after successful Note composition.
 
@@ -196,3 +222,20 @@ The system SHALL record Note ids on the Source after successful Note composition
 - **THEN** P0 rejects the operation
 - **AND** does not create an additional parallel main Note
 
+### Requirement: Feishu Doc Import Enters Source Lifecycle
+
+系统 SHALL 将成功导入的飞书文档作为用户主动提供资料进入既有 Source 生命周期，并保持后续处理、理解、讨论、确认、Note 生成和索引 gates 不变。
+
+#### Scenario: Feishu Doc Source is created
+- **WHEN** Feishu Doc import workflow creates a Source from a readable Feishu document
+- **THEN** Source status MUST be `ingested`
+- **AND** Source ingest_type MUST be `feishu_doc`
+- **AND** Source content_type MUST be `document`
+- **AND** Source origin.type MUST be `user_import`
+- **AND** Source origin.user_input_type MUST be `feishu_doc`
+- **AND** Source processing_artifacts MUST remain empty until source process runs
+
+#### Scenario: Feishu Doc Source cannot skip workflow gates
+- **WHEN** a Feishu Doc Source has only been imported and has not completed processing, understanding, discussion convergence, and explicit source approval
+- **THEN** the system MUST NOT create a formal `Note`
+- **AND** the system MUST NOT create a main `Index Entry`

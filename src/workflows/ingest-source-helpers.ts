@@ -44,6 +44,7 @@ export function build_user_import_source(input: {
   user_input_type: NonNullable<Source['origin']['user_input_type']>;
   timestamp: string;
   url?: string | null;
+  metadata?: Source['metadata'];
 }): Source {
   return parse_source({
     id: input.source_id,
@@ -75,6 +76,7 @@ export function build_user_import_source(input: {
       last_updated_at: input.timestamp,
     },
     note_ids: [],
+    metadata: input.metadata,
   } satisfies Source);
 }
 

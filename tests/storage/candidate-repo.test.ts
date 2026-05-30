@@ -4,6 +4,7 @@ import {
   create_candidate,
   get_candidate,
   list_candidates,
+  update_candidate,
 } from '../../src/storage/candidate-repo.js';
 import { candidate_json_path } from '../../src/storage/paths.js';
 import { create_test_candidate } from '../candidate-test-helpers.js';
@@ -69,9 +70,40 @@ describe('candidate repo', () => {
     ).resolves.toEqual([newer]);
   });
 
-  it('does not create index entries when Candidates are saved', async () => {
+  it('updates existing Candidate JSON through schema validation', async () => {
     const cwd = await create_temp_dir();
-    await create_candidate(create_test_candidate(), { cwd });
+    const candidate = create_test_candidate();
+    await create_candidate(candidate, { cwd });
+
+    const updated = await update_candidate(
+      {
+        ...candidate,
+        status: 'recommended',
+        scored_at: '2026-05-27T00:00:00.000Z',
+      },
+      { cwd },
+    );
+
+    expect(updated.status).toBe('recommended');
+    await expect(get_candidate(candidate.id, { cwd })).resolves.toMatchObject({
+      status: 'recommended',
+      scored_at: '2026-05-27T00:00:00.000Z',
+    });
+  });
+
+  it('rejects updates for missing Candidates', async () => {
+    const cwd = await create_temp_dir();
+
+    await expect(
+      update_candidate(create_test_candidate(), { cwd }),
+    ).rejects.toThrow('Candidate not found');
+  });
+
+  it('does not create index entries when Candidates are saved or updated', async () => {
+    const cwd = await create_temp_dir();
+    const candidate = create_test_candidate();
+    await create_candidate(candidate, { cwd });
+    await update_candidate({ ...candidate, status: 'dismissed' }, { cwd });
 
     await expect(readdir(`${cwd}/knowledge/index`)).rejects.toThrow();
   });

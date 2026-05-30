@@ -19,6 +19,7 @@ export const SourceIngestTypeSchema = z.enum([
   'upload_pdf',
   'input_url',
   'lark_doc',
+  'feishu_doc',
   'candidate_selected',
 ]);
 
@@ -27,7 +28,9 @@ export const SourceContentTypeSchema = z.enum(['document', 'link']);
 export const SourceOriginSchema = z.object({
   type: z.enum(['candidate', 'user_import']),
   candidate_id: z.string().nullable(),
-  user_input_type: z.enum(['markdown', 'pdf', 'url', 'lark_doc']).nullable(),
+  user_input_type: z
+    .enum(['markdown', 'pdf', 'url', 'lark_doc', 'feishu_doc'])
+    .nullable(),
 });
 
 export const DraftUnderstandingSchema = z.object({
@@ -60,6 +63,17 @@ export const SourceLastErrorSchema = z.object({
   occurred_at: z.string(),
 });
 
+export const FeishuDocSourceMetadataSchema = z.object({
+  original_input: z.string(),
+  title: z.string(),
+  document_type: z.string(),
+  imported_at: z.string(),
+});
+
+export const SourceMetadataSchema = z.object({
+  feishu_doc: FeishuDocSourceMetadataSchema.optional(),
+});
+
 export const SourceSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -78,6 +92,7 @@ export const SourceSchema = z.object({
   discussion_summary: DiscussionSummarySchema,
   note_ids: z.array(z.string()),
   last_error: SourceLastErrorSchema.optional(),
+  metadata: SourceMetadataSchema.optional(),
 });
 
 export type Source = z.infer<typeof SourceSchema>;
@@ -179,6 +194,26 @@ export function validate_source_invariants(source: Source): void {
     }
     if (source.url === null) {
       throw new Error('input_url source must have a non-null url');
+    }
+  }
+
+  if (source.ingest_type === 'feishu_doc') {
+    if (source.origin.type !== 'user_import') {
+      throw new Error('feishu_doc source must be user_import');
+    }
+    if (source.origin.user_input_type !== 'feishu_doc') {
+      throw new Error(
+        'feishu_doc source must have origin.user_input_type = feishu_doc',
+      );
+    }
+    if (source.content_type !== 'document') {
+      throw new Error('feishu_doc source must have content_type = document');
+    }
+    if (source.url !== null) {
+      throw new Error('feishu_doc source must have url = null');
+    }
+    if (source.metadata?.feishu_doc === undefined) {
+      throw new Error('feishu_doc source must have metadata.feishu_doc');
     }
   }
 

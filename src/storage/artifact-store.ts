@@ -27,7 +27,7 @@ export const PROCESSED_SEGMENTS_ARTIFACT_PATH = 'processed/segments.json';
 
 export const ProcessedSegmentLocatorSchema = z.object({
   ref: z.string(),
-  source_kind: z.enum(['markdown', 'pdf', 'url']),
+  source_kind: z.enum(['markdown', 'pdf', 'url', 'feishu_doc']),
   position: z.number().int().positive(),
   page: z.number().int().positive().optional(),
   heading_path: z.array(z.string()),

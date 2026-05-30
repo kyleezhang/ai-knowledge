@@ -2,9 +2,14 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { get_note_markdown } from '../../src/storage/note-repo.js';
+import {
+  create_note,
+  get_note,
+  get_note_markdown,
+} from '../../src/storage/note-repo.js';
 import { get_source } from '../../src/storage/source-repo.js';
 import { approve_source_workflow } from '../../src/workflows/approve-source-workflow.js';
+import { default_quality_checks } from '../../src/domain/note.js';
 import { compose_note_workflow } from '../../src/workflows/compose-note-workflow.js';
 import { discuss_source_workflow } from '../../src/workflows/discuss-source-workflow.js';
 import { ingest_markdown_workflow } from '../../src/workflows/ingest-markdown-workflow.js';
@@ -13,6 +18,7 @@ import { process_source_workflow } from '../../src/workflows/process-source-work
 import { render_note_workflow } from '../../src/workflows/render-note-workflow.js';
 import { show_note_workflow } from '../../src/workflows/show-note-workflow.js';
 import { understand_source_workflow } from '../../src/workflows/understand-source-workflow.js';
+import { create_test_note } from '../note-test-helpers.js';
 
 const note_candidate = {
   title: 'Composed Note',
@@ -61,6 +67,103 @@ describe('note workflows', () => {
         command: `ai-knowledge note lint ${result.data.note_id}`,
       },
     ]);
+  });
+
+  it('composes with confirmed related notes only', async () => {
+    const cwd = await create_temp_dir();
+    const related_note = create_approved_test_note({
+      id: 'note_20260514_related-memory',
+      title: 'Related Memory',
+      slug: 'related-memory',
+      root_note_id: 'note_20260514_related-memory',
+      conclusions: ['Related conclusion'],
+    });
+    await create_note(
+      { note: related_note, markdown: '# Related Memory\n' },
+      { cwd },
+    );
+    const source_id = await create_approved_source(cwd);
+
+    const result = await compose_note_workflow({
+      cwd,
+      source_id,
+      confirmed_related_note_ids: [related_note.id],
+      compose: async ({ agent_input }) => ({
+        ...note_candidate,
+        source_refs: agent_input.source_refs,
+        related_note_ids: [related_note.id],
+      }),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    await expect(get_note(result.data.note_id, { cwd })).resolves.toMatchObject(
+      {
+        related_note_ids: [related_note.id],
+      },
+    );
+  });
+
+  it('rejects unconfirmed related note ids from the Note Agent', async () => {
+    const cwd = await create_temp_dir();
+    const related_note = create_approved_test_note({
+      id: 'note_20260514_unconfirmed',
+      title: 'Unconfirmed',
+      slug: 'unconfirmed',
+      root_note_id: 'note_20260514_unconfirmed',
+    });
+    await create_note(
+      { note: related_note, markdown: '# Unconfirmed\n' },
+      { cwd },
+    );
+    const source_id = await create_approved_source(cwd);
+
+    const result = await compose_note_workflow({
+      cwd,
+      source_id,
+      compose: async ({ agent_input }) => ({
+        ...note_candidate,
+        source_refs: agent_input.source_refs,
+        related_note_ids: [related_note.id],
+      }),
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.message).toContain(
+        'Note related_note_ids must be confirmed before composition',
+      );
+    }
+  });
+
+  it('rejects confirmed related note ids that are not approved', async () => {
+    const cwd = await create_temp_dir();
+    const draft_note = create_test_note({
+      id: 'note_20260514_draft-related',
+      title: 'Draft Related',
+      slug: 'draft-related',
+      root_note_id: 'note_20260514_draft-related',
+    });
+    await create_note(
+      { note: draft_note, markdown: '# Draft Related\n' },
+      { cwd },
+    );
+    const source_id = await create_approved_source(cwd);
+
+    const result = await compose_note_workflow({
+      cwd,
+      source_id,
+      confirmed_related_note_ids: [draft_note.id],
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.message).toContain(
+        'Confirmed related notes must be approved',
+      );
+    }
   });
 
   it('rejects compose when Source is not approved_for_note', async () => {
@@ -178,6 +281,22 @@ describe('note workflows', () => {
     expect(show.data.note.conclusions).toEqual(['Confirmed conclusion']);
   });
 });
+
+function create_approved_test_note(
+  overrides: Partial<ReturnType<typeof create_test_note>> = {},
+) {
+  return create_test_note({
+    status: 'approved',
+    approved_at: '2026-05-14T00:00:00.000Z',
+    quality_checks: {
+      ...default_quality_checks,
+      status: 'passed',
+      template_complete: true,
+      source_links_present: true,
+    },
+    ...overrides,
+  });
+}
 
 async function create_temp_dir(): Promise<string> {
   return mkdtemp(path.join(os.tmpdir(), 'ai-knowledge-note-'));

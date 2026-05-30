@@ -51,7 +51,7 @@ This capability defines the Candidate domain object contract used by future auto
 - **AND** 错误 MUST 表示 score total invariant 被破坏
 
 ### Requirement: Candidate conversion invariant is enforced
-系统 SHALL 校验 Candidate 转换状态与 `converted_source_id` 的一致性。`status = converted` 时 `converted_source_id` MUST 非空；非 converted 状态时 `converted_source_id` MUST 为 `null`。
+系统 SHALL 校验 Candidate 转换状态与 `converted_source_id` 的一致性。`status = converted` 时 `converted_source_id` MUST 非空；非 converted 状态时 `converted_source_id` MUST 为 `null`。`selected` 表示用户已开始转换但尚未成功写入 Source id。
 
 #### Scenario: Converted Candidate has source id
 - **WHEN** Candidate `status = converted`
@@ -67,6 +67,11 @@ This capability defines the Candidate domain object contract used by future auto
 - **WHEN** Candidate `status = recommended`、`new`、`dismissed` 或 `selected`
 - **AND** `converted_source_id` 非空
 - **THEN** `parse_candidate` MUST reject该对象
+
+#### Scenario: Selected Candidate has no source id
+- **WHEN** Candidate `status = selected`
+- **AND** `converted_source_id = null`
+- **THEN** `parse_candidate` MAY accept该对象 if all other fields are valid
 
 ### Requirement: Candidate domain stays isolated from workflows and storage
 系统 SHALL 允许 Candidate domain 被 Candidate storage 与只读查看 workflow 使用，但 Candidate MUST 仍保持在主知识层之外，不得绕过 Source、Discussion、Note、QA 或 Index gate。Candidate storage/read-only CLI 不得创建 Source、Note 或 Index Entry，也不得参与 answer retrieval。
