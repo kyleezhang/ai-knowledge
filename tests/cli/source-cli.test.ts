@@ -833,6 +833,63 @@ describe('source CLI', () => {
     });
   });
 
+  it('archives Sources with text and JSON output and keeps archived Sources visible', async () => {
+    const cwd = await create_temp_dir();
+    const text_source_id = await ingest_and_process(
+      cwd,
+      '# Archive Source\n\nBody.\n',
+    );
+    const json_source_id = await ingest_and_process(
+      cwd,
+      '# Archive JSON Source\n\nBody.\n',
+    );
+    const text = create_cli_harness(cwd);
+    const json = create_cli_harness(cwd);
+
+    await text.run(['source', 'archive', text_source_id]);
+    await json.run(['source', 'archive', json_source_id, '--json']);
+
+    expect(text.stdout.join('\n')).toContain('Source archived.');
+    expect(text.stdout.join('\n')).toContain('status: archived');
+    expect(JSON.parse(json.stdout[0])).toMatchObject({
+      ok: true,
+      data: { source: { status: 'archived' } },
+    });
+
+    const list = create_cli_harness(cwd);
+    await list.run(['source', 'list', '--status', 'archived']);
+    expect(list.stdout.join('\n')).toContain(text_source_id);
+    expect(list.stdout.join('\n')).toContain(json_source_id);
+
+    const show = create_cli_harness(cwd);
+    await show.run(['source', 'show', text_source_id]);
+    expect(show.stdout.join('\n')).toContain('status: archived');
+  });
+
+  it('prints structured errors for source archive failures', async () => {
+    const cwd = await create_temp_dir();
+    const source_id = await ingest_and_process(
+      cwd,
+      '# Archive Twice\n\nBody.\n',
+    );
+    const first = create_cli_harness(cwd);
+    await first.run(['source', 'archive', source_id]);
+
+    const repeated = create_cli_harness(cwd);
+    await repeated.run(['source', 'archive', source_id]);
+    const missing = create_cli_harness(cwd);
+    await missing.run([
+      'source',
+      'archive',
+      'src_20260514_upload_markdown_missing',
+    ]);
+
+    expect(repeated.exit_code).toBe(1);
+    expect(repeated.stderr.join('\n')).toContain('code: INVALID_STATE');
+    expect(missing.exit_code).toBe(1);
+    expect(missing.stderr.join('\n')).toContain('code: NOT_FOUND');
+  });
+
   it('prints structured errors for source approve failures', async () => {
     const cwd = await create_temp_dir();
     const source_id = await ingest_process_understand(
@@ -1164,6 +1221,133 @@ describe('source CLI', () => {
       ok: true,
       data: { index_entry: { note_id, status: 'approved', vector_ref: null } },
     });
+  });
+
+  it('archives Notes with text and JSON output and keeps archived Notes visible', async () => {
+    const cwd = await create_temp_dir();
+    const text_note_id = await create_indexed_note(cwd, 'Archive Note CLI');
+    const json_note_id = await create_indexed_note(cwd, 'Archive Note JSON');
+    const text = create_cli_harness(cwd);
+    const json = create_cli_harness(cwd);
+
+    await text.run(['note', 'archive', text_note_id]);
+    await json.run(['note', 'archive', json_note_id, '--json']);
+
+    expect(text.stdout.join('\n')).toContain('Note archived.');
+    expect(text.stdout.join('\n')).toContain('status: archived');
+    expect(JSON.parse(json.stdout[0])).toMatchObject({
+      ok: true,
+      data: { note: { status: 'archived' }, index_entry_removed: true },
+    });
+
+    const list = create_cli_harness(cwd);
+    await list.run(['note', 'list', '--status', 'archived']);
+    expect(list.stdout.join('\n')).toContain(text_note_id);
+    expect(list.stdout.join('\n')).toContain(json_note_id);
+
+    const show = create_cli_harness(cwd);
+    await show.run(['note', 'show', text_note_id]);
+    expect(show.stdout.join('\n')).toContain('status: archived');
+  });
+
+  it('prints structured errors for note archive failures', async () => {
+    const cwd = await create_temp_dir();
+    const note_id = await compose_cli_note(cwd, 'Archive Twice Note');
+    const first = create_cli_harness(cwd);
+    await first.run(['note', 'archive', note_id]);
+
+    const repeated = create_cli_harness(cwd);
+    await repeated.run(['note', 'archive', note_id]);
+    const missing = create_cli_harness(cwd);
+    await missing.run(['note', 'archive', 'note_20260514_missing-note']);
+
+    expect(repeated.exit_code).toBe(1);
+    expect(repeated.stderr.join('\n')).toContain('code: INVALID_STATE');
+    expect(missing.exit_code).toBe(1);
+    expect(missing.stderr.join('\n')).toContain('code: NOT_FOUND');
+  });
+
+  it('supersedes Notes with text and JSON output and shows version chain fields', async () => {
+    const cwd = await create_temp_dir();
+    const text_note_id = await create_indexed_note(cwd, 'Supersede CLI Old');
+    const json_note_id = await create_indexed_note(cwd, 'Supersede JSON Old');
+    const text_source_id = await create_approved_source(cwd);
+    const json_source_id = await create_approved_source(cwd);
+    const text = create_cli_harness(cwd, {
+      compose_note: async ({ agent_input }) => ({
+        title: 'Supersede CLI New',
+        conclusions: agent_input.discussion_summary.confirmed_points,
+        why_it_matters: ['It matters.'],
+        current_understanding: 'Current understanding.',
+        open_questions: [],
+        related_note_ids: [],
+        source_refs: agent_input.source_refs,
+      }),
+    });
+    const json = create_cli_harness(cwd, {
+      compose_note: async ({ agent_input }) => ({
+        title: 'Supersede JSON New',
+        conclusions: agent_input.discussion_summary.confirmed_points,
+        why_it_matters: ['It matters.'],
+        current_understanding: 'Current understanding.',
+        open_questions: [],
+        related_note_ids: [],
+        source_refs: agent_input.source_refs,
+      }),
+    });
+
+    await text.run(['note', 'supersede', text_note_id, text_source_id]);
+    await json.run([
+      'note',
+      'supersede',
+      json_note_id,
+      json_source_id,
+      '--json',
+    ]);
+
+    const text_output = text.stdout.join('\n');
+    expect(text_output).toContain('Note superseded.');
+    expect(text_output).toContain('Old note:');
+    expect(text_output).toContain('status: superseded');
+    expect(text_output).toContain('New note:');
+    expect(text_output).toContain('status: draft');
+    expect(text_output).toContain('version: 2');
+    const json_output = JSON.parse(json.stdout[0]) as {
+      ok: true;
+      data: {
+        new_note_id: string;
+        old_note: { status: string };
+        new_note: { version: number };
+      };
+    };
+    expect(json_output.data.old_note.status).toBe('superseded');
+    expect(json_output.data.new_note.version).toBe(2);
+
+    const show = create_cli_harness(cwd);
+    await show.run(['note', 'show', json_output.data.new_note_id]);
+    const show_output = show.stdout.join('\n');
+    expect(show_output).toContain('version: 2');
+    expect(show_output).toContain(`supersedes_note_id: ${json_note_id}`);
+  });
+
+  it('prints structured errors for note supersede failures', async () => {
+    const cwd = await create_temp_dir();
+    const note_id = await compose_cli_note(cwd, 'Draft Cannot Supersede');
+    const source_id = await create_approved_source(cwd);
+    const draft_old = create_cli_harness(cwd);
+    await draft_old.run(['note', 'supersede', note_id, source_id]);
+    const missing = create_cli_harness(cwd);
+    await missing.run([
+      'note',
+      'supersede',
+      'note_20260514_missing-note',
+      source_id,
+    ]);
+
+    expect(draft_old.exit_code).toBe(1);
+    expect(draft_old.stderr.join('\n')).toContain('code: INVALID_STATE');
+    expect(missing.exit_code).toBe(1);
+    expect(missing.stderr.join('\n')).toContain('code: NOT_FOUND');
   });
 
   it('rejects invalid note approve and index requests', async () => {

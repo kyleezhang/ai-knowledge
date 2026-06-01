@@ -1,4 +1,4 @@
-import { access, mkdir, readdir } from 'node:fs/promises';
+import { access, mkdir, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import {
   IndexEntrySchema,
@@ -64,6 +64,28 @@ export async function list_index_entries(
   return entries.sort((left, right) =>
     right.approved_at.localeCompare(left.approved_at),
   );
+}
+
+export async function remove_index_entry(
+  note_id: string,
+  context: IndexRepoContext = {},
+): Promise<boolean> {
+  const file_path = index_entry_path(note_id, context);
+  if (!(await exists(file_path))) {
+    return false;
+  }
+
+  try {
+    await rm(file_path);
+    return true;
+  } catch (error) {
+    throw new StorageError({
+      code: 'WRITE_FAILED',
+      message: `Failed to remove index entry: ${note_id}`,
+      path: file_path,
+      cause: error,
+    });
+  }
 }
 
 async function exists(file_path: string): Promise<boolean> {

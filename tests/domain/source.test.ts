@@ -162,6 +162,36 @@ describe('Source domain', () => {
     );
   });
 
+  it('allows archiving non-processing Sources without requiring processed artifacts', () => {
+    const ingested = create_test_source();
+    const failed = create_test_source({
+      status: 'failed',
+      last_error: {
+        stage: 'processing',
+        message: 'Failed.',
+        occurred_at: '2026-05-14T00:00:00.000Z',
+      },
+    });
+
+    expect(transition_source(ingested, 'archived').status).toBe('archived');
+    expect(transition_source(failed, 'archived').status).toBe('archived');
+    expect(() =>
+      validate_source_invariants({ ...ingested, status: 'archived' }),
+    ).not.toThrow();
+  });
+
+  it('rejects archiving processing or already archived Sources', () => {
+    expect(() =>
+      transition_source(
+        create_test_source({ status: 'processing' }),
+        'archived',
+      ),
+    ).toThrow('Invalid source transition: processing -> archived');
+    expect(() =>
+      transition_source(create_test_source({ status: 'archived' }), 'archived'),
+    ).toThrow('Invalid source transition: archived -> archived');
+  });
+
   it('requires standard artifacts for processed sources', () => {
     const source = create_test_source({
       status: 'processed',

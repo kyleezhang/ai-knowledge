@@ -1,8 +1,10 @@
+import { access } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { build_index_entry } from '../../src/indexing/build-index-entry.js';
 import {
   get_index_entry,
   list_index_entries,
+  remove_index_entry,
   save_index_entry,
 } from '../../src/storage/index-repo.js';
 import { index_entry_path } from '../../src/storage/paths.js';
@@ -63,5 +65,27 @@ describe('index repo', () => {
       entry,
     );
     await expect(list_index_entries({ cwd })).resolves.toEqual([entry]);
+  });
+
+  it('removes index entries through storage paths', async () => {
+    const cwd = await create_temp_dir();
+    const entry = build_index_entry(approved_note());
+    await save_index_entry(entry, { cwd });
+    const entry_path = index_entry_path(entry.note_id, { cwd });
+
+    await expect(remove_index_entry(entry.note_id, { cwd })).resolves.toBe(
+      true,
+    );
+
+    await expect(access(entry_path)).rejects.toBeDefined();
+    await expect(list_index_entries({ cwd })).resolves.toEqual([]);
+  });
+
+  it('reports missing index entries as not removed', async () => {
+    const cwd = await create_temp_dir();
+
+    await expect(
+      remove_index_entry('note_20260514_missing-note', { cwd }),
+    ).resolves.toBe(false);
   });
 });

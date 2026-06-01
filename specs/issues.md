@@ -2,9 +2,40 @@
 
 ## 1. 文档目标
 
-本文档基于 `specs/prd.md`、`specs/workflow.md`、`specs/schema.md` 与 `specs/implementation.md`，记录从 P0/P1 到最终预期能力的 issue 拆分。
+本文档基于 `specs/prd.md`、`specs/workflow.md`、`specs/schema.md` 与 `specs/implementation.md`，记录从 P0/P1 到最终预期能力的 issue 拆分，并作为当前实现状态的轻量路线图。
 
-P0 范围：
+### 1.1 当前实现快照（2026-06-01）
+
+当前应用已经实现以下用户可见能力：
+
+- CLI 工作区初始化：`ai-knowledge init` 创建本地 `knowledge/` 目录。
+- 主动 Source 导入：Markdown、PDF、公开 URL、飞书文档均可显式导入为 `Source`。
+- Source 处理：Markdown / PDF / URL HTML / 飞书文档统一生成 `processed/clean_text.md`、`processed/segments.json`、`processed/metadata.json`。
+- Draft understanding：基于 processed artifacts 调用 LLM Agent 生成结构化初步理解。
+- 讨论闭环：`source discuss` 交互式 REPL、`discussion.jsonl` 原始消息、`discussion_summary` 结构化摘要、收敛检查与 `source approve` 门槛。
+- Note 生命周期：从 approved Source 生成 `note.json` / `note.md`，支持 render、lint、approve、index、archive、list、show。
+- 已确认知识问答：`answer` 只检索 approved Index Entry 并加载 approved Notes 作答；无命中时明确提示没有相关已确认知识。
+- Candidate 候选池：GitHub Trending / Hacker News 采集、去重、过滤、规则评分、推荐、选择并转换为 Source。
+- 相关笔记基础能力：从 approved Notes 中发现候选关系，`note compose --related-note` 只允许写入显式确认的 related note ids。
+- Source / Note 归档：支持 `source archive` 与 `note archive`；归档保留历史文件，archived Note 会退出主检索。
+- 验收与测试：P0 Markdown、P1 PDF/URL、Candidate pool、归档工作流均有测试覆盖；真实 LLM smoke 依赖环境变量。
+
+### 1.2 当前仍未完成或仅部分完成的能力
+
+- URL 导入的 raw 快照只保存 `raw/fetched.html` 和 `source.url`，尚未按早期 issue 条目保存独立 `raw/original.url` 或 redirect 后最终 URL。
+- 相关笔记尚未参与 answer 的上下文扩展排序；当前主要用于 compose 时写入 `Note.related_note_ids` 和 index/render 展示。
+- 更完整的 Index Entry 生命周期清理仍是待办；Source / Note archive 与 Note supersede 已完成。
+- 向量索引、混合检索、answer fallback 到未确认材料仍是待办。
+- 本地异步 job/retry、定时自动采集与自动推进仍是待办。
+- Web UI 不在当前范围内。
+
+### 1.3 状态标记
+
+- `Done`：当前代码、测试或 archived OpenSpec change 已覆盖该 issue 的主路径。
+- `Partial`：已有可用能力，但仍有本 issue 中明确列出的验收差距。
+- 未标记：尚未实现或仍应作为后续 backlog。
+
+P0 主链路：
 
 ```text
 Markdown -> Source -> Processed Artifacts -> Draft Understanding
@@ -12,16 +43,7 @@ Markdown -> Source -> Processed Artifacts -> Draft Understanding
 -> QA -> Approved Note -> Index Entry -> Answer
 ```
 
-P0 不包含：
-
-- PDF 支持
-- 用户显式提供的 URL 导入
-- GitHub Trending / Hacker News 自动采集
-- Candidate 工作流接入
-- 向量检索
-- Web UI
-
-P1 范围：
+P1 输入扩展：
 
 ```text
 PDF file / Public URL -> Source -> Processed Artifacts -> Draft Understanding
@@ -29,59 +51,39 @@ PDF file / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 -> QA -> Approved Note -> Index Entry -> Answer
 ```
 
-P1 聚焦“扩展 Source 输入类型，但不改变下游知识主链路”。P1 只支持：
-
-- 用户主动导入本地 PDF
-- 用户显式提交公开网页 / 博客 URL
-
-P1 不包含：
-
-- 自动爬站 / 批量抓取 / 搜索发现
-- 登录态、付费墙或需要 session 的网页
-- JS 渲染兜底与浏览器自动化抓取
-- Candidate 工作流接入
-- 向量检索
-- Web UI
-
-P2+ 范围用于覆盖最终预期能力，包括：
-
-- Candidate 候选池与自动采集
-- 飞书文档等主动输入扩展
-- 更严格的讨论收敛判定
-- Note 归档、版本化与相关关系治理
-- 向量索引与混合检索
-- 问答 fallback 到未确认材料并显式标注
-- 异步任务、重试与定时采集
+P2+ 范围用于覆盖最终预期能力，包括 Candidate 候选池与自动采集、飞书文档等主动输入扩展、Note 归档/版本化、相关关系治理、向量索引、混合检索、问答 fallback、异步任务、重试与定时采集。
 
 ## 2. Issue 列表
 
 ### Issue 1: 初始化 TypeScript CLI 项目与知识库目录
+- **Status**: Done
+- **Archived change**: `openspec/changes/archive/2026-05-12-initialize-typescript-cli-project/`
 
 - **Type**: AFK
 - **Blocked by**: None
 - **User stories covered**:
   - 用户可以初始化本地 AI 学习助手工作区
   - 开发者可以运行 CLI、测试、lint/typecheck
-
 #### What to build
 
 建立 TypeScript + Node.js + pnpm + ESM 项目骨架，实现 `ai-knowledge init`，创建 P0 所需 `knowledge/` 目录结构。
 
 #### Acceptance criteria
 
-- [ ] 项目包含 TypeScript、pnpm、ESM、Vitest、ESLint、Prettier 基础配置
-- [ ] CLI 可执行 `ai-knowledge init`
-- [ ] `init` 创建 `knowledge/candidates/`、`knowledge/sources/`、`knowledge/notes/`、`knowledge/index/`
-- [ ] `init` 幂等，不覆盖已有文件
-- [ ] 有基础 CLI 测试或 smoke test
+- [x] 项目包含 TypeScript、pnpm、ESM、Vitest、ESLint、Prettier 基础配置
+- [x] CLI 可执行 `ai-knowledge init`
+- [x] `init` 创建 `knowledge/candidates/`、`knowledge/sources/`、`knowledge/notes/`、`knowledge/index/`
+- [x] `init` 幂等，不覆盖已有文件
+- [x] 有基础 CLI 测试或 smoke test
 
 #### Blocked by
 
 None - can start immediately
 
 ---
-
 ### Issue 2: 导入 Markdown 为 Source，并支持 Source 查看
+- **Status**: Done
+- **Archived change**: `openspec/changes/archive/2026-05-14-import-markdown-source-view/`
 
 - **Type**: AFK
 - **Blocked by**: Issue 1
@@ -89,116 +91,115 @@ None - can start immediately
   - 用户可以主动导入 Markdown 学习资料
   - 系统把用户资料转成 Source 工作对象
   - 用户可以查看已导入资料和当前 Source 状态
-
 #### What to build
 
 实现 `ai-knowledge source ingest markdown <file>`，创建 `Source` 目录、`source.json`、空 `discussion.jsonl`，保存 `raw/original.md`；同时实现 `source list/show` 作为 Source 工作流的只读入口。
 
 #### Acceptance criteria
 
-- [ ] `source ingest markdown <file>` 可导入本地 Markdown 文件
-- [ ] 生成合法 `Source` 对象，状态为 `ingested`
-- [ ] `processing_artifacts = {}`
-- [ ] `draft_understanding = null`
-- [ ] `discussion_summary.summary_version = 0`
-- [ ] 原始文件保存为 `raw/original.md`
-- [ ] 成功输出 next action：`ai-knowledge source process <source_id>`
-- [ ] `source list` 展示 id、status、title、updated_at
-- [ ] `source list --status <status>` 可过滤
-- [ ] `source show <source_id>` 展示 Source 关键状态，不默认输出完整正文 artifact
-- [ ] list 默认按 `updated_at desc`
-- [ ] 支持 `--json`
-- [ ] 覆盖 domain schema、storage、workflow、CLI 测试
+- [x] `source ingest markdown <file>` 可导入本地 Markdown 文件
+- [x] 生成合法 `Source` 对象，状态为 `ingested`
+- [x] `processing_artifacts = {}`
+- [x] `draft_understanding = null`
+- [x] `discussion_summary.summary_version = 0`
+- [x] 原始文件保存为 `raw/original.md`
+- [x] 成功输出 next action：`ai-knowledge source process <source_id>`
+- [x] `source list` 展示 id、status、title、updated_at
+- [x] `source list --status <status>` 可过滤
+- [x] `source show <source_id>` 展示 Source 关键状态，不默认输出完整正文 artifact
+- [x] list 默认按 `updated_at desc`
+- [x] 支持 `--json`
+- [x] 覆盖 domain schema、storage、workflow、CLI 测试
 
 #### Blocked by
 
 - Issue 1
 
 ---
-
 ### Issue 3: 处理 Markdown 生成 processed artifacts
+- **Status**: Done
+- **Archived change**: `openspec/changes/archive/2026-05-16-process-markdown-artifacts/`
 
 - **Type**: AFK
 - **Blocked by**: Issue 2
 - **User stories covered**:
   - 系统可以把导入资料转换成统一可理解表示
   - 后续 Agent 可以基于处理产物生成理解草稿
-
 #### What to build
 
 实现 `ai-knowledge source process <source_id>`，读取 `raw/original.md`，生成 processed 三件套，并把 Source 状态推进到 `processed`。
 
 #### Acceptance criteria
 
-- [ ] 前置状态必须为 `ingested`
-- [ ] 状态流转：`ingested -> processing -> processed`
-- [ ] 生成 `processed/clean_text.md`
-- [ ] 生成 `processed/segments.json`
-- [ ] 生成 `processed/metadata.json`
-- [ ] `source.json.processing_artifacts` 登记相对路径
-- [ ] processing 失败时 Source 进入 `failed` 并写 `last_error.stage = processing`
-- [ ] 成功输出 next action：`ai-knowledge source understand <source_id>`
-- [ ] 支持 `--json`
+- [x] 前置状态必须为 `ingested`
+- [x] 状态流转：`ingested -> processing -> processed`
+- [x] 生成 `processed/clean_text.md`
+- [x] 生成 `processed/segments.json`
+- [x] 生成 `processed/metadata.json`
+- [x] `source.json.processing_artifacts` 登记相对路径
+- [x] processing 失败时 Source 进入 `failed` 并写 `last_error.stage = processing`
+- [x] 成功输出 next action：`ai-knowledge source understand <source_id>`
+- [x] 支持 `--json`
 
 #### Blocked by
 
 - Issue 2
 
 ---
-
 ### Issue 4: 接入 LLM Client 与 Prompt 加载
+- **Status**: Done
+- **Archived change**: `openspec/changes/archive/2026-05-17-llm-client-prompt-loading/`
 
 - **Type**: AFK
 - **Blocked by**: Issue 1
 - **User stories covered**:
   - 系统可以通过统一 Agent 接口调用模型
   - Agent 输出必须结构化并可校验
-
 #### What to build
 
 实现 Agent 层基础设施：Anthropic SDK client、DeepSeek Anthropic-compatible 配置、prompt loader、`generate_json`、AgentError。
 
 #### Acceptance criteria
 
-- [ ] 使用 `@anthropic-ai/sdk`
-- [ ] `baseURL = https://api.deepseek.com/anthropic`
-- [ ] API key 从 `process.env.GATEWAY_API_KEY` 获取
-- [ ] 默认模型为 `deepseek-v4-pro`
-- [ ] 实现 `generate_json`，接收 Zod schema 并校验输出
-- [ ] LLM 输出 schema 校验失败抛 `AgentError: LLM_OUTPUT_SCHEMA_FAILED`
-- [ ] Prompt 从 `src/agents/prompts/` 加载
-- [ ] 单元测试不依赖真实 LLM，可 mock client
+- [x] 使用 `@anthropic-ai/sdk`
+- [x] `baseURL = https://api.deepseek.com/anthropic`
+- [x] API key 从 `process.env.DEEPSEEK_API_KEY` 获取
+- [x] 默认模型为 `deepseek-v4-pro`
+- [x] 实现 `generate_json`，接收 Zod schema 并校验输出
+- [x] LLM 输出 schema 校验失败抛 `AgentError: LLM_OUTPUT_SCHEMA_FAILED`
+- [x] Prompt 从 `src/agents/prompts/` 加载
+- [x] 单元测试不依赖真实 LLM，可 mock client
 
 #### Blocked by
 
 - Issue 1
 
 ---
-
 ### Issue 5: 生成 draft_understanding
+- **Status**: Done
+- **Archived change**: `openspec/changes/archive/2026-05-17-generate-draft-understanding/`
 
 - **Type**: AFK
 - **Blocked by**: Issue 3, Issue 4
 - **User stories covered**:
   - 系统在讨论前先形成初步理解草稿
   - 草稿显式暴露不确定性和讨论切口
-
 #### What to build
 
 实现 `ai-knowledge source understand <source_id>`，基于 processed artifacts 调用 Understand Agent，写入 `draft_understanding`，状态推进到 `understanding_ready`。
 
 #### Acceptance criteria
 
-- [ ] 前置状态必须为 `processed`
-- [ ] 调用 `understand-agent`
-- [ ] 使用 `draft-understanding.md`
-- [ ] 输出包含 `summary`、`key_points`、`uncertainties`、`discussion_starters`
-- [ ] workflow 补 `generated_at`
-- [ ] 状态流转：`processed -> understanding_ready`
-- [ ] LLM 或 schema 失败时 Source 进入 `failed`，写 `last_error.stage = understanding`
-- [ ] 成功输出 next action：`ai-knowledge source discuss <source_id>`
-- [ ] 支持 `--show`
-- [ ] 支持 `--json`
+- [x] 前置状态必须为 `processed`
+- [x] 调用 `understand-agent`
+- [x] 使用 `draft-understanding.md`
+- [x] 输出包含 `summary`、`key_points`、`uncertainties`、`discussion_starters`
+- [x] workflow 补 `generated_at`
+- [x] 状态流转：`processed -> understanding_ready`
+- [x] LLM 或 schema 失败时 Source 进入 `failed`，写 `last_error.stage = understanding`
+- [x] 成功输出 next action：`ai-knowledge source discuss <source_id>`
+- [x] 支持 `--show`
+- [x] 支持 `--json`
 
 #### Blocked by
 
@@ -206,67 +207,68 @@ None - can start immediately
 - Issue 4
 
 ---
-
 ### Issue 6: 交互式 Source 讨论 REPL
+- **Status**: Done
+- **Archived change**: `openspec/changes/archive/2026-05-18-interactive-source-discussion-repl/`
 
 - **Type**: HITL
 - **Blocked by**: Issue 5
 - **User stories covered**:
   - 用户可以围绕单个 Source 与 Agent 多轮讨论
   - 系统维护原始讨论消息和结构化讨论摘要
-
 #### What to build
 
 实现 `ai-knowledge source discuss <source_id>` 交互式 REPL。每轮调用 Discussion Agent，追加 `discussion.jsonl`，更新 `discussion_summary`。
 
 #### Acceptance criteria
 
-- [ ] 前置状态支持 `understanding_ready | discussing`
-- [ ] 首次讨论自动流转到 `discussing`
-- [ ] 用户消息 append 到 `discussion.jsonl`
-- [ ] Agent 回复 append 到 `discussion.jsonl`
-- [ ] 每轮更新 `discussion_summary`
-- [ ] 支持内置命令：`/summary`、`/draft`、`/status`、`/approve`、`/exit`、`/help`
-- [ ] `/approve` 不允许强制确认，必须满足 ready 条件
-- [ ] discussion agent 单轮失败时保持 `discussing`，写 `last_error.stage = discussion`
-- [ ] 人工验收 REPL 交互体验
+- [x] 前置状态支持 `understanding_ready | discussing`
+- [x] 首次讨论自动流转到 `discussing`
+- [x] 用户消息 append 到 `discussion.jsonl`
+- [x] Agent 回复 append 到 `discussion.jsonl`
+- [x] 每轮更新 `discussion_summary`
+- [x] 支持内置命令：`/summary`、`/draft`、`/status`、`/approve`、`/exit`、`/help`
+- [x] `/approve` 不允许强制确认，必须满足 ready 条件
+- [x] discussion agent 单轮失败时保持 `discussing`，写 `last_error.stage = discussion`
+- [x] 人工验收 REPL 交互体验
 
 #### Blocked by
 
 - Issue 5
 
 ---
-
 ### Issue 7: Source 讨论确认
+- **Status**: Done
+- **Archived change**: `openspec/changes/archive/2026-05-18-approve-source-discussion/`
 
 - **Type**: AFK
 - **Blocked by**: Issue 6
 - **User stories covered**:
   - 用户明确确认结构化结论可以落笔
   - 系统防止未收敛讨论直接生成正式 Note
-
 #### What to build
 
 实现 `ai-knowledge source approve <source_id>`，校验讨论收敛条件后将 Source 推进到 `approved_for_note`。
 
 #### Acceptance criteria
 
-- [ ] 前置状态必须为 `discussing`
-- [ ] `discussion_summary.ready_for_approval = true`
-- [ ] `confirmed_points` 非空
-- [ ] 状态流转：`discussing -> approved_for_note`
-- [ ] `discussion_summary.discussion_status = closed`
-- [ ] 不支持强制 approve
-- [ ] 成功输出 next action：`ai-knowledge note compose <source_id>`
-- [ ] 支持 `--json`
+- [x] 前置状态必须为 `discussing`
+- [x] `discussion_summary.ready_for_approval = true`
+- [x] `confirmed_points` 非空
+- [x] 状态流转：`discussing -> approved_for_note`
+- [x] `discussion_summary.discussion_status = closed`
+- [x] 不支持强制 approve
+- [x] 成功输出 next action：`ai-knowledge note compose <source_id>`
+- [x] 支持 `--json`
 
 #### Blocked by
 
 - Issue 6
 
 ---
-
 ### Issue 8: 生成 Note JSON / Markdown，并支持 Note 查看与重渲染
+- **Status**: Done
+- **Archived change**: `openspec/changes/archive/2026-05-18-compose-note-json-markdown/`
 
 - **Type**: AFK
 - **Blocked by**: Issue 7
@@ -274,138 +276,137 @@ None - can start immediately
   - 用户确认后的讨论结果可以沉淀为正式 Note 草稿
   - `note.json` 是主真相，`note.md` 是导出视图
   - 用户可以查看已生成笔记并从 `note.json` 重新渲染 Markdown
-
 #### What to build
 
 实现 `ai-knowledge note compose <source_id>`，调用 Note Agent 生成 Note 候选，workflow 补系统字段，渲染 Markdown，创建 Note 目录，并关联回 Source。同时实现 `note render`、`note list`、`note show`。
 
 #### Acceptance criteria
 
-- [ ] 前置状态必须为 `Source.status = approved_for_note`
-- [ ] Note Agent 使用 `compose-note-json.md`
-- [ ] `conclusions` 只能来自 `confirmed_points`
-- [ ] workflow 补 id、slug、status、version、timestamps、approval_context、quality_checks
-- [ ] 生成 `note.json`
-- [ ] 生成 `note.md`
-- [ ] 初始 `Note.status = draft`
-- [ ] 更新 `Source.note_ids`
-- [ ] Source 状态流转：`approved_for_note -> noted`
-- [ ] Source 更新失败时返回 `PARTIAL_FAILURE`
-- [ ] 成功输出 next action：`ai-knowledge note lint <note_id>`
-- [ ] `note render <note_id>` 从 `note.json` 重新渲染 `note.md`，不改变 Note 状态
-- [ ] `note list` 展示 id、status、title、updated_at，默认按 `updated_at desc`
-- [ ] `note list --status <status>` 可过滤
-- [ ] `note show <note_id>` 展示 title、status、conclusions、source_refs、related_note_ids、quality_checks
-- [ ] `note show` 不默认输出完整 `note.md`
-- [ ] 支持 `--json`
+- [x] 前置状态必须为 `Source.status = approved_for_note`
+- [x] Note Agent 使用 `compose-note-json.md`
+- [x] `conclusions` 只能来自 `confirmed_points`
+- [x] workflow 补 id、slug、status、version、timestamps、approval_context、quality_checks
+- [x] 生成 `note.json`
+- [x] 生成 `note.md`
+- [x] 初始 `Note.status = draft`
+- [x] 更新 `Source.note_ids`
+- [x] Source 状态流转：`approved_for_note -> noted`
+- [x] Source 更新失败时返回 `PARTIAL_FAILURE`
+- [x] 成功输出 next action：`ai-knowledge note lint <note_id>`
+- [x] `note render <note_id>` 从 `note.json` 重新渲染 `note.md`，不改变 Note 状态
+- [x] `note list` 展示 id、status、title、updated_at，默认按 `updated_at desc`
+- [x] `note list --status <status>` 可过滤
+- [x] `note show <note_id>` 展示 title、status、conclusions、source_refs、related_note_ids、quality_checks
+- [x] `note show` 不默认输出完整 `note.md`
+- [x] 支持 `--json`
 
 #### Blocked by
 
 - Issue 7
 
 ---
-
 ### Issue 9: Note QA / lint
+- **Status**: Done
+- **Archived change**: `openspec/changes/archive/2026-05-19-lint-note-quality/`
 
 - **Type**: AFK
 - **Blocked by**: Issue 8
 - **User stories covered**:
   - 系统在入库前检查 Note 质量
   - 未通过 QA 的 Note 不能进入 approved 状态
-
 #### What to build
 
 实现 `ai-knowledge note lint <note_id>`，检查 `note.json` 与 `note.md` 的最小质量规则，写入 `quality_checks`。
 
 #### Acceptance criteria
 
-- [ ] P0 只允许 lint `draft` Note
-- [ ] 检查 required fields
-- [ ] 检查 Markdown 模板章节完整
-- [ ] 检查 `source_refs` 非空
-- [ ] 检查 `conclusions` 非空
-- [ ] 检查 `why_it_matters` 非空
-- [ ] 检查 `approval_context.source_id`
-- [ ] 检查 `approval_context.approved_from_summary_version`
-- [ ] 成功时写 `quality_checks.status = passed`
-- [ ] 失败时写 `quality_checks.status = failed` 并返回失败原因
-- [ ] 通过后输出 next action：`ai-knowledge note approve <note_id>`
-- [ ] 支持 `--json`
+- [x] P0 只允许 lint `draft` Note
+- [x] 检查 required fields
+- [x] 检查 Markdown 模板章节完整
+- [x] 检查 `source_refs` 非空
+- [x] 检查 `conclusions` 非空
+- [x] 检查 `why_it_matters` 非空
+- [x] 检查 `approval_context.source_id`
+- [x] 检查 `approval_context.approved_from_summary_version`
+- [x] 成功时写 `quality_checks.status = passed`
+- [x] 失败时写 `quality_checks.status = failed` 并返回失败原因
+- [x] 通过后输出 next action：`ai-knowledge note approve <note_id>`
+- [x] 支持 `--json`
 
 #### Blocked by
 
 - Issue 8
 
 ---
-
 ### Issue 10: Note 批准与索引
+- **Status**: Done
+- **Archived change**: `openspec/changes/archive/2026-05-19-approve-note-and-index/`
 
 - **Type**: AFK
 - **Blocked by**: Issue 9
 - **User stories covered**:
   - 通过 QA 的 Note 可以进入主知识层
   - approved Note 可以成为后续问答检索来源
-
 #### What to build
 
 实现 `ai-knowledge note approve <note_id>` 与 `ai-knowledge note index <note_id>`，将 draft Note 批准并建立关键词 / metadata 索引。
 
 #### Acceptance criteria
 
-- [ ] `note approve` 前置条件：`Note.status = draft`
-- [ ] `note approve` 前置条件：`quality_checks.status = passed`
-- [ ] 状态流转：`draft -> approved`
-- [ ] 设置 `approved_at`
-- [ ] 成功输出 next action：`ai-knowledge note index <note_id>`
-- [ ] `note index` 只接受 `approved` Note
-- [ ] 生成 `knowledge/index/YYYY/MM/note_xxx.index.json`
-- [ ] `vector_ref = null`
-- [ ] Index Entry status 只能为 `approved`
-- [ ] 支持 `--json`
+- [x] `note approve` 前置条件：`Note.status = draft`
+- [x] `note approve` 前置条件：`quality_checks.status = passed`
+- [x] 状态流转：`draft -> approved`
+- [x] 设置 `approved_at`
+- [x] 成功输出 next action：`ai-knowledge note index <note_id>`
+- [x] `note index` 只接受 `approved` Note
+- [x] 生成 `knowledge/index/YYYY/MM/note_xxx.index.json`
+- [x] `vector_ref = null`
+- [x] Index Entry status 只能为 `approved`
+- [x] 支持 `--json`
 
 #### Blocked by
 
 - Issue 9
 
 ---
-
 ### Issue 11: 基于 approved Notes 回答问题
+- **Status**: Done
+- **Archived change**: `openspec/changes/archive/2026-05-19-answer-approved-notes/`
 
 - **Type**: AFK
 - **Blocked by**: Issue 10
 - **User stories covered**:
   - 用户可以基于已确认知识进行后续问答
   - 系统不会把未确认 Source 当作正式知识
-
 #### What to build
 
 实现 `ai-knowledge answer "<question>"`，只检索 approved Note 的 Index Entry，加载 Note 后调用 Answer Agent 生成 grounded answer。
 
 #### Acceptance criteria
 
-- [ ] 只检索 approved Index Entry
-- [ ] P0 不 fallback 到 Source
-- [ ] Answer Agent 使用 `answer-grounded.md`
-- [ ] 不使用模型常识补充为知识库结论
-- [ ] 没有命中时明确说明没有相关已确认知识
-- [ ] 输出结构包含综合结论、引用 Notes、不足与边界
-- [ ] 支持 `--top-k`
-- [ ] 支持 `--json`
+- [x] 只检索 approved Index Entry
+- [x] P0 不 fallback 到 Source
+- [x] Answer Agent 使用 `answer-grounded.md`
+- [x] 不使用模型常识补充为知识库结论
+- [x] 没有命中时明确说明没有相关已确认知识
+- [x] 输出结构包含综合结论、引用 Notes、不足与边界
+- [x] 支持 `--top-k`
+- [x] 支持 `--json`
 
 #### Blocked by
 
 - Issue 10
 
 ---
-
 ### Issue 12: P0 端到端验收用例
+- **Status**: Done
+- **Archived change**: `openspec/changes/archive/2026-05-20-p0-end-to-end-acceptance/`
 
 - **Type**: HITL
 - **Blocked by**: Issue 1-11
 - **User stories covered**:
   - 用户可以完成完整 Markdown 学习闭环
   - 产品核心假设可以被端到端验证
-
 #### What to build
 
 准备一个 P0 端到端验收 fixture 和验收脚本/文档，跑通完整链路：
@@ -418,13 +419,13 @@ Markdown -> Source -> Processed Artifacts -> Draft Understanding
 
 #### Acceptance criteria
 
-- [ ] 有一份 Markdown fixture
-- [ ] 有端到端验收步骤
-- [ ] 可以从空 `knowledge/` 跑到 approved Note
-- [ ] 可以基于 approved Note 回答问题
-- [ ] 验收中确认：没有讨论确认不能生成 Note
-- [ ] 验收中确认：没有 QA passed 不能 approve Note
-- [ ] 人工确认 CLI 交互体验可接受
+- [x] 有一份 Markdown fixture
+- [x] 有端到端验收步骤
+- [x] 可以从空 `knowledge/` 跑到 approved Note
+- [x] 可以基于 approved Note 回答问题
+- [x] 验收中确认：没有讨论确认不能生成 Note
+- [x] 验收中确认：没有 QA passed 不能 approve Note
+- [x] 人工确认 CLI 交互体验可接受
 
 #### Blocked by
 
@@ -441,8 +442,10 @@ Markdown -> Source -> Processed Artifacts -> Draft Understanding
 - Issue 11
 
 ---
-
 ### Issue 13: 扩展 Source 输入契约到 P1（PDF / URL）
+- **Status**: Partial
+- **Archived change**: `openspec/changes/archive/2026-05-20-extend-source-input-contract-p1-pdf-url/`
+- **Remaining gap**: URL Source 当前未保存独立 `raw/original.url`，也未保存 redirect 后最终 URL。
 
 - **Type**: AFK
 - **Blocked by**: Issue 2
@@ -450,57 +453,56 @@ Markdown -> Source -> Processed Artifacts -> Draft Understanding
   - 用户可以把本地 PDF 作为学习资料导入
   - 用户可以显式提交公开博客 / 网页 URL 作为学习资料导入
   - 系统对不同输入类型统一落入 Source 工作流，而不改变后续主链路
-
 #### What to build
 
 扩展 `Source` schema、ingest CLI 与原始落盘约定，为 P1 新增 `ai-knowledge source ingest pdf <file>` 与 `ai-knowledge source ingest url <url>`。PDF ingest 保存 `raw/original.pdf`；URL ingest 在显式抓取成功后保存 `raw/original.url` 与 `raw/fetched.html`，并登记来源元信息。该 issue 只定义输入契约与存储约定，不改变下游 `process -> understand -> discuss -> approve -> note -> index -> answer` 语义。
 
 #### Acceptance criteria
 
-- [ ] `origin.user_input_type` 支持 `markdown | pdf | url`
-- [ ] `ingest_type` 支持 `upload_markdown | upload_pdf | input_url`
-- [ ] `content_type` 支持 `document | link`
-- [ ] `source ingest pdf <file>` 成功时创建 `ingested` Source 并保存 `raw/original.pdf`
-- [ ] `source ingest url <url>` 只接受显式提供的 `http | https` URL
+- [x] `origin.user_input_type` 支持 `markdown | pdf | url`
+- [x] `ingest_type` 支持 `upload_markdown | upload_pdf | input_url`
+- [x] `content_type` 支持 `document | link`
+- [x] `source ingest pdf <file>` 成功时创建 `ingested` Source 并保存 `raw/original.pdf`
+- [x] `source ingest url <url>` 只接受显式提供的 `http | https` URL
 - [ ] URL ingest 成功时保存 `raw/original.url`
-- [ ] URL ingest 成功时保存 `raw/fetched.html`
+- [x] URL ingest 成功时保存 `raw/fetched.html`
 - [ ] URL ingest 在 `source.json` 记录原始 URL、最终 URL（如有 redirect）与抓取时间
-- [ ] `source list/show` 能正确展示 PDF / URL Source 的基本信息
-- [ ] 支持 `--json`
-- [ ] 不支持自动爬站、批量 URL 导入、搜索发现或登录态抓取
+- [x] `source list/show` 能正确展示 PDF / URL Source 的基本信息
+- [x] 支持 `--json`
+- [x] 不支持自动爬站、批量 URL 导入、搜索发现或登录态抓取
 
 #### Blocked by
 
 - Issue 2
 
 ---
-
 ### Issue 14: 处理 PDF Source 生成 processed artifacts
+- **Status**: Done
+- **Archived change**: `openspec/changes/archive/2026-05-25-process-pdf-source-artifacts/`
 
 - **Type**: AFK
 - **Blocked by**: Issue 3, Issue 13
 - **User stories covered**:
   - 用户可以把 PDF 学习资料转成统一可理解文本证据
   - 后续理解、讨论、Note 与问答链路可以复用既有 P0 能力
-
 #### What to build
 
 扩展 `ai-knowledge source process <source_id>` 以支持 PDF Source：读取 `raw/original.pdf`，提取文本并生成 processed 三件套。PDF 的 processed 输出仍与 Markdown 对齐，但在 `segments` 和 `metadata` 中补充页码与抽取信息，供后续 evidence locator 使用。
 
 #### Acceptance criteria
 
-- [ ] 前置状态必须为 `ingested`
-- [ ] `source process` 可识别 PDF Source 并读取 `raw/original.pdf`
-- [ ] 生成 `processed/clean_text.md`
-- [ ] 生成 `processed/segments.json`
-- [ ] 生成 `processed/metadata.json`
-- [ ] PDF `segments` 提供页码或等价 locator，供后续 `source_refs.evidence_refs` 使用
-- [ ] PDF `metadata` 记录页数、抽取方式与抽取失败信息
-- [ ] 处理成功后仍输出 next action：`ai-knowledge source understand <source_id>`
-- [ ] processing 失败时 Source 进入 `failed` 并写 `last_error.stage = processing`
-- [ ] `understand`、`discuss`、`approve`、`note compose` 无需增加 PDF 专用命令
-- [ ] 支持 `--json`
-- [ ] P1 不要求 OCR 扫描件支持
+- [x] 前置状态必须为 `ingested`
+- [x] `source process` 可识别 PDF Source 并读取 `raw/original.pdf`
+- [x] 生成 `processed/clean_text.md`
+- [x] 生成 `processed/segments.json`
+- [x] 生成 `processed/metadata.json`
+- [x] PDF `segments` 提供页码或等价 locator，供后续 `source_refs.evidence_refs` 使用
+- [x] PDF `metadata` 记录页数；抽取失败信息写入 `Source.last_error.stage = processing`
+- [x] 处理成功后仍输出 next action：`ai-knowledge source understand <source_id>`
+- [x] processing 失败时 Source 进入 `failed` 并写 `last_error.stage = processing`
+- [x] `understand`、`discuss`、`approve`、`note compose` 无需增加 PDF 专用命令
+- [x] 支持 `--json`
+- [x] P1 不要求 OCR 扫描件支持
 
 #### Blocked by
 
@@ -508,8 +510,10 @@ Markdown -> Source -> Processed Artifacts -> Draft Understanding
 - Issue 13
 
 ---
-
 ### Issue 15: 抓取 URL Source 并处理网页正文
+- **Status**: Partial
+- **Archived change**: `openspec/changes/archive/2026-05-25-fetch-url-source-webpage-text/`
+- **Remaining gap**: 已支持公开 HTML 抓取与处理，但未保存独立 `raw/original.url` / redirect final URL。
 
 - **Type**: AFK
 - **Blocked by**: Issue 3, Issue 13
@@ -517,25 +521,24 @@ Markdown -> Source -> Processed Artifacts -> Draft Understanding
   - 用户可以把博客 / 网页链接作为学习资料导入
   - 系统先读取网页内容，再进入现有知识处理流程
   - 系统显式区分公开网页输入与后续自动采集能力
-
 #### What to build
 
 实现 `ai-knowledge source ingest url <url>` 的公开网页抓取，并扩展 `source process <source_id>` 以支持 HTML 正文提取。ingest 阶段负责抓取并保存快照；process 阶段负责正文抽取、标题 / 作者 / 发布时间归一化与 section 分段。
 
 #### Acceptance criteria
 
-- [ ] `source ingest url <url>` 只支持 `http | https`
-- [ ] ingest 阶段完成网页读取，并保存 `raw/fetched.html`
+- [x] `source ingest url <url>` 只支持 `http | https`
+- [x] ingest 阶段完成网页读取，并保存 `raw/fetched.html`
 - [ ] ingest 阶段保存 `raw/original.url`
-- [ ] fetch 成功后 Source 状态为 `ingested`
-- [ ] fetch 失败时返回结构化错误，不生成成功的 `ingested` Source
-- [ ] `source process` 可从 `raw/fetched.html` 提取 `processed/clean_text.md`
-- [ ] `source process` 生成 `processed/segments.json` 与 `processed/metadata.json`
-- [ ] `metadata` 尽可能归一化 `title`、`author`、`published_at`，缺失时允许 `null`
+- [x] fetch 成功后 Source 状态为 `ingested`
+- [x] fetch 失败时返回结构化错误，不生成成功的 `ingested` Source
+- [x] `source process` 可从 `raw/fetched.html` 提取 `processed/clean_text.md`
+- [x] `source process` 生成 `processed/segments.json` 与 `processed/metadata.json`
+- [x] `metadata` 尽可能归一化 `title`、`author`、`published_at`，缺失时允许 `null`
 - [ ] 支持 redirect 后最终 URL 记录
-- [ ] 支持不支持的 `content-type` / 抓取失败的明确错误反馈
-- [ ] 支持 `--json`
-- [ ] 不支持登录态、付费墙、站点级抓取、搜索发现或 JS 渲染兜底
+- [x] 支持不支持的 `content-type` / 抓取失败的明确错误反馈
+- [x] 支持 `--json`
+- [x] 不支持登录态、付费墙、站点级抓取、搜索发现或 JS 渲染兜底
 
 #### Blocked by
 
@@ -543,7 +546,6 @@ Markdown -> Source -> Processed Artifacts -> Draft Understanding
 - Issue 13
 
 ---
-
 ### Issue 16: 统一跨来源 evidence locator
 
 - **Status**: Done
@@ -575,7 +577,6 @@ Markdown -> Source -> Processed Artifacts -> Draft Understanding
 - Issue 15
 
 ---
-
 ### Issue 17: P1 端到端验收用例（PDF / URL）
 
 - **Status**: Done
@@ -617,7 +618,6 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 - Issue 16
 
 ---
-
 ### Issue 18: 实现 Candidate domain schema/type
 
 - **Status**: Done
@@ -649,7 +649,6 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 - Issue 1
 
 ---
-
 ### Issue 19: Candidate 存储与只读查看
 
 - **Status**: Done
@@ -682,7 +681,6 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 - Issue 18
 
 ---
-
 ### Issue 20: GitHub Trending / Hacker News 采集器
 
 - **Status**: Done
@@ -714,7 +712,6 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 - Issue 19
 
 ---
-
 ### Issue 21: Candidate 去重、过滤与评分推荐
 
 - **Status**: Done
@@ -746,7 +743,6 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 - Issue 20
 
 ---
-
 ### Issue 22: Candidate 选中并转换为 Source
 
 - **Status**: Done
@@ -781,7 +777,6 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 - Issue 2
 
 ---
-
 ### Issue 23: 自动采集候选池端到端验收
 
 - **Status**: Done
@@ -813,7 +808,6 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 - Issue 22
 
 ---
-
 ### Issue 24: 导入飞书文档为 Source
 
 - **Status**: Done
@@ -845,7 +839,6 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 - Issue 2
 
 ---
-
 ### Issue 25: 处理飞书文档 Source 生成 processed artifacts
 
 - **Status**: Done
@@ -880,7 +873,6 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 - Issue 3
 
 ---
-
 ### Issue 26: 讨论收敛规则检查器
 
 - **Status**: Done
@@ -913,29 +905,30 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 - Issue 7
 
 ---
-
 ### Issue 27: 相关笔记发现与确认
+- **Status**: Partial
+- **Archived change**: `openspec/changes/archive/2026-05-30-related-notes-discovery-confirmation/`
+- **Remaining gap**: 已完成候选发现、显式 confirmed ids 写入、render/index 展示；answer 尚未利用 related notes 扩展上下文。
 
 - **Type**: HITL
 - **Blocked by**: Issue 10, Issue 11
 - **User stories covered**:
   - 用户可以把新知识与既有笔记建立主题、概念或时间关联
   - 相关笔记关系必须可解释、可确认，不由模型静默写入主真相
-
 #### What to build
 
 实现 related notes 候选发现、展示和确认机制。候选可由关键词/metadata/LLM 建议产生，但写入 `related_note_ids` 前需要明确规则或用户确认。
 
 #### Acceptance criteria
 
-- [ ] 能基于 approved Notes 生成 related note 候选
-- [ ] 候选包含关联理由
-- [ ] Note compose 时可携带 related note 候选上下文
+- [x] 能基于 approved Notes 生成 related note 候选
+- [x] 候选包含关联理由
+- [x] Note compose 时可携带 related note 候选上下文
 - [ ] 支持用户确认或拒绝 related note
-- [ ] 只把确认后的关系写入 `Note.related_note_ids`
-- [ ] `note render` 展示相关笔记
+- [x] 只把确认后的关系写入 `Note.related_note_ids`
+- [x] `note render` 展示相关笔记
 - [ ] `answer` 可利用相关笔记扩展 approved Note 上下文
-- [ ] 覆盖相关性规则和确认 workflow 测试
+- [x] 覆盖相关性规则和确认 workflow 测试
 
 #### Blocked by
 
@@ -943,8 +936,10 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 - Issue 11
 
 ---
-
 ### Issue 28: Source / Note 归档工作流
+
+- **Status**: Done
+- **Archived change**: `openspec/changes/archive/2026-06-01-source-note-archive-workflow/`
 
 - **Type**: AFK
 - **Blocked by**: Issue 10
@@ -958,15 +953,15 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 #### Acceptance criteria
 
-- [ ] 支持 `ai-knowledge source archive <source_id>`
-- [ ] 支持 `ai-knowledge note archive <note_id>`
-- [ ] Source 只通过状态机进入 `archived`
-- [ ] Note 只通过状态机进入 `archived`
-- [ ] 归档不删除 raw、processed、discussion、note.md 或 note.json
-- [ ] archived Note 不进入主检索结果
-- [ ] archived Note 对历史引用仍可 show
-- [ ] 支持 `--json`
-- [ ] 覆盖 workflow、retrieval 测试
+- [x] 支持 `ai-knowledge source archive <source_id>`
+- [x] 支持 `ai-knowledge note archive <note_id>`
+- [x] Source 只通过状态机进入 `archived`
+- [x] Note 只通过状态机进入 `archived`
+- [x] 归档不删除 raw、processed、discussion、note.md 或 note.json
+- [x] archived Note 不进入主检索结果
+- [x] archived Note 对历史引用仍可 show
+- [x] 支持 `--json`
+- [x] 覆盖 workflow、retrieval 测试
 
 #### Blocked by
 
@@ -975,6 +970,9 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 ---
 
 ### Issue 29: Note 版本化与 supersede 工作流
+
+- **Status**: Done
+- **Change**: `openspec/changes/note-versioning-supersede-workflow/`
 
 - **Type**: HITL
 - **Blocked by**: Issue 10, Issue 26
@@ -988,16 +986,16 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 #### Acceptance criteria
 
-- [ ] 支持创建新版 Note 的 workflow 或命令
-- [ ] 新版 Note `version = old.version + 1`
-- [ ] 新版 Note 继承 `root_note_id`
-- [ ] 新版 Note 写入 `supersedes_note_id`
-- [ ] 旧版 Note 状态流转为 `superseded`
-- [ ] 旧版 Note 写入 `superseded_by_note_id`
-- [ ] superseded Note 不进入当前主检索结果
-- [ ] 版本链可通过 `note show` 查看
-- [ ] 不允许无确认讨论直接创建新版 approved Note
-- [ ] 覆盖版本链 invariant 和 workflow 测试
+- [x] 支持创建新版 Note 的 workflow 或命令
+- [x] 新版 Note `version = old.version + 1`
+- [x] 新版 Note 继承 `root_note_id`
+- [x] 新版 Note 写入 `supersedes_note_id`
+- [x] 旧版 Note 状态流转为 `superseded`
+- [x] 旧版 Note 写入 `superseded_by_note_id`
+- [x] superseded Note 不进入当前主检索结果
+- [x] 版本链可通过 `note show` 查看
+- [x] 不允许无确认讨论直接创建新版 approved Note
+- [x] 覆盖版本链 invariant 和 workflow 测试
 
 #### Blocked by
 
@@ -1020,13 +1018,13 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 #### Acceptance criteria
 
-- [ ] `note index` 不接受 archived / superseded Note
-- [ ] Note archive 后对应 index entry 被移除或标记为非主检索
-- [ ] Note supersede 后旧版 index entry 被移除或标记为非主检索
+- [x] `note index` 不接受 archived / superseded Note
+- [x] Note archive 后对应 index entry 被移除或标记为非主检索
+- [x] Note supersede 后旧版 index entry 被移除或标记为非主检索
 - [ ] 重新 index approved Note 时覆盖旧 index entry
-- [ ] retrieval 只返回当前 approved 且未归档、未 superseded 的 Note
-- [ ] index 清理失败返回结构化错误
-- [ ] 覆盖 retrieval 与 index lifecycle 测试
+- [x] retrieval 只返回当前 approved 且未归档、未 superseded 的 Note
+- [x] index 清理失败返回结构化错误
+- [x] 覆盖 retrieval 与 index lifecycle 测试
 
 #### Blocked by
 
@@ -1223,7 +1221,7 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 ## 3. Dependency Map
 
-### P0
+### P0（Done）
 
 ```text
 1
@@ -1244,7 +1242,7 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 └─ 12 depends on 1-11
 ```
 
-### P1
+### P1（Core done, URL raw URL snapshot gap remains）
 
 ```text
 13 depends on 2
@@ -1254,7 +1252,7 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 17 depends on 13, 14, 15, 16
 ```
 
-### P2+ / Final Expected Capability
+### P2+ / Final Expected Capability（18-27 mostly done; 28+ backlog）
 
 ```text
 18 depends on 1
@@ -1284,11 +1282,13 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 ## 4. Notes
 
-- P0 issue 拆分覆盖 Markdown 主动学习闭环。
-- P1 聚焦 PDF 主动导入与用户显式提供的公开 URL 导入，不改变下游知识主链路。
+- P0 Markdown 主动学习闭环已实现并有端到端验收覆盖。
+- P1 PDF 主动导入已实现；URL 显式导入与 HTML 处理已实现，但 `raw/original.url` 与 redirect final URL 仍是遗留验收差距。
 - URL 导入不包含自动爬站、批量抓取、搜索发现、登录态页面或 JS 渲染兜底。
-- P2+ issue 拆分覆盖最终预期能力，但仍应按阶段逐步实现，不应一次性混入 P0/P1。
-- Candidate 仍不进入主知识层；只有用户选择后转换为 Source，且经过讨论确认和 QA 的 approved Note 才能进入主检索。
+- Candidate 候选池、GitHub Trending / Hacker News 采集、去重评分、推荐和用户选择转 Source 已实现；Candidate 仍不进入主知识层。
+- 飞书文档主动导入和处理已实现，后续主链路复用 Source -> Note -> Answer。
+- 相关笔记发现与确认写入已具备基础能力；answer 利用 related notes 扩展上下文仍待实现。
+- Source / Note archive 与 Note supersede 已实现；Index Entry 生命周期清理仅剩 approved Note 重新 index 覆盖旧 entry 等治理细节。
 - 向量检索只增强 retrieval，不改变 `note.json` 作为正式知识主真相的边界。
 - Answer fallback 可以引用未确认材料，但必须显式标注，且不得把未确认材料写入主 index。
 - HITL issue 包括交互式讨论、候选选择、相关笔记确认、版本化判断和端到端验收。

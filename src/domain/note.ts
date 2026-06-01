@@ -72,8 +72,29 @@ export function validate_note_invariants(note: Note): void {
     throw new Error('note version must be positive');
   }
 
-  if (note.version === 1 && note.root_note_id !== note.id) {
-    throw new Error('v1 note root_note_id must equal id');
+  if (note.version === 1) {
+    if (note.root_note_id !== note.id) {
+      throw new Error('v1 note root_note_id must equal id');
+    }
+    if (note.supersedes_note_id !== null) {
+      throw new Error('v1 note must not supersede another note');
+    }
+  }
+
+  if (note.version > 1) {
+    if (note.root_note_id === note.id) {
+      throw new Error('versioned note root_note_id must differ from id');
+    }
+    if (note.supersedes_note_id === null) {
+      throw new Error('versioned note must have supersedes_note_id');
+    }
+    if (note.supersedes_note_id === note.id) {
+      throw new Error('note must not supersede itself');
+    }
+  }
+
+  if (note.superseded_by_note_id === note.id) {
+    throw new Error('note must not be superseded by itself');
   }
 
   if (note.source_refs.length === 0) {

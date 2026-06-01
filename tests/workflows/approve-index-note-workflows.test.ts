@@ -102,11 +102,46 @@ describe('approve and index note workflows', () => {
   it('rejects indexing non-approved notes', async () => {
     const cwd = await create_temp_dir();
     const note = create_test_note({ quality_checks: passed_quality_checks });
+    const archived = create_test_note({
+      id: 'note_20260514_archived-index',
+      root_note_id: 'note_20260514_archived-index',
+      status: 'archived',
+      quality_checks: passed_quality_checks,
+    });
+    const superseded = create_test_note({
+      id: 'note_20260514_superseded-index',
+      root_note_id: 'note_20260514_superseded-index',
+      status: 'superseded',
+      superseded_by_note_id: 'note_20260514_new-index',
+      quality_checks: passed_quality_checks,
+    });
     await create_note({ note, markdown: render_note_markdown(note) }, { cwd });
+    await create_note(
+      { note: archived, markdown: render_note_markdown(archived) },
+      { cwd },
+    );
+    await create_note(
+      { note: superseded, markdown: render_note_markdown(superseded) },
+      { cwd },
+    );
 
     const result = await index_note_workflow({ cwd, note_id: note.id });
+    const archived_result = await index_note_workflow({
+      cwd,
+      note_id: archived.id,
+    });
+    const superseded_result = await index_note_workflow({
+      cwd,
+      note_id: superseded.id,
+    });
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe('INVALID_STATE');
+    expect(archived_result.ok).toBe(false);
+    if (!archived_result.ok)
+      expect(archived_result.error.code).toBe('INVALID_STATE');
+    expect(superseded_result.ok).toBe(false);
+    if (!superseded_result.ok)
+      expect(superseded_result.error.code).toBe('INVALID_STATE');
   });
 });

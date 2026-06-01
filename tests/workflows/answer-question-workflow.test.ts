@@ -3,6 +3,7 @@ import { build_index_entry } from '../../src/indexing/build-index-entry.js';
 import { render_note_markdown } from '../../src/notes/render-markdown.js';
 import { create_candidate } from '../../src/storage/candidate-repo.js';
 import { save_index_entry } from '../../src/storage/index-repo.js';
+import { archive_note_workflow } from '../../src/workflows/archive-note-workflow.js';
 import { create_note } from '../../src/storage/note-repo.js';
 import { answer_question_workflow } from '../../src/workflows/answer-question-workflow.js';
 import { create_test_candidate } from '../candidate-test-helpers.js';
@@ -107,6 +108,72 @@ describe('answer question workflow', () => {
     expect(called).toBe(false);
     expect(result.data.matched_note_ids).toEqual([]);
     expect(result.data.answer.conclusion).toBe('没有相关已确认知识。');
+  });
+
+  it('does not answer from archived or superseded Notes or fallback to raw Sources', async () => {
+    const cwd = await create_temp_dir();
+    const archived = approved_note(
+      'note_20260514_archive-answer',
+      'Archive Answer',
+    );
+    const superseded = approved_note(
+      'note_20260514_superseded-answer',
+      'Superseded Answer',
+    );
+    await create_note(
+      { note: archived, markdown: render_note_markdown(archived) },
+      { cwd },
+    );
+    await create_note(
+      {
+        note: {
+          ...superseded,
+          status: 'superseded',
+          superseded_by_note_id: 'note_20260514_new-answer',
+        },
+        markdown: render_note_markdown({
+          ...superseded,
+          status: 'superseded',
+          superseded_by_note_id: 'note_20260514_new-answer',
+        }),
+      },
+      { cwd },
+    );
+    await save_index_entry(build_index_entry(archived), { cwd });
+    await save_index_entry(build_index_entry(superseded), { cwd });
+    const archive = await archive_note_workflow({ cwd, note_id: archived.id });
+    if (!archive.ok) throw new Error(archive.error.message);
+    let called = false;
+
+    const archived_result = await answer_question_workflow({
+      cwd,
+      question: 'archive answer',
+      answer: async () => {
+        called = true;
+        throw new Error('should not call');
+      },
+    });
+    const superseded_result = await answer_question_workflow({
+      cwd,
+      question: 'superseded answer',
+      answer: async () => {
+        called = true;
+        throw new Error('should not call');
+      },
+    });
+
+    expect(archived_result.ok).toBe(true);
+    expect(superseded_result.ok).toBe(true);
+    if (!archived_result.ok || !superseded_result.ok) return;
+    expect(called).toBe(false);
+    expect(archived_result.data.matched_note_ids).toEqual([]);
+    expect(superseded_result.data.matched_note_ids).toEqual([]);
+    expect(archived_result.data.answer.conclusion).toBe('没有相关已确认知识。');
+    expect(superseded_result.data.answer.conclusion).toBe(
+      '没有相关已确认知识。',
+    );
+    expect(archived_result.data.answer.unconfirmed_materials).toEqual([]);
+    expect(superseded_result.data.answer.unconfirmed_materials).toEqual([]);
   });
 
   it('respects top_k', async () => {

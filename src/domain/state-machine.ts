@@ -2,15 +2,15 @@ import type { Note, NoteStatus } from './note.js';
 import type { Source, SourceStatus } from './source.js';
 
 const source_transitions: Record<SourceStatus, readonly SourceStatus[]> = {
-  ingested: ['processing'],
+  ingested: ['processing', 'archived'],
   processing: ['processed', 'failed'],
-  processed: ['understanding_ready', 'failed'],
-  understanding_ready: ['discussing'],
-  discussing: ['approved_for_note', 'failed'],
-  approved_for_note: ['noted'],
+  processed: ['understanding_ready', 'failed', 'archived'],
+  understanding_ready: ['discussing', 'archived'],
+  discussing: ['approved_for_note', 'failed', 'archived'],
+  approved_for_note: ['noted', 'archived'],
   noted: ['archived'],
   archived: [],
-  failed: ['processing', 'processed'],
+  failed: ['processing', 'processed', 'archived'],
 };
 
 const note_transitions: Record<NoteStatus, readonly NoteStatus[]> = {

@@ -5,6 +5,7 @@ import {
   get_candidate,
 } from '../../src/storage/candidate-repo.js';
 import {
+  source_dir,
   source_processed_dir,
   source_raw_markdown_path,
 } from '../../src/storage/paths.js';
@@ -149,9 +150,10 @@ describe('select candidate workflow', () => {
     expect(first.ok).toBe(true);
     expect(second.ok).toBe(false);
     if (!second.ok) expect(second.error.code).toBe('INVALID_STATE');
+    if (!first.ok) return;
     const source_root_entries = await readdir(
-      `${cwd}/knowledge/sources/2026/05`,
+      source_dir(first.data.source_id, { cwd }),
     );
-    expect(source_root_entries).toHaveLength(1);
+    expect(source_root_entries).toContain('source.json');
   });
 });

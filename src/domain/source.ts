@@ -104,7 +104,6 @@ const statuses_after_processing = new Set<SourceStatus>([
   'discussing',
   'approved_for_note',
   'noted',
-  'archived',
 ]);
 
 const statuses_after_understanding = new Set<SourceStatus>([
@@ -112,7 +111,6 @@ const statuses_after_understanding = new Set<SourceStatus>([
   'discussing',
   'approved_for_note',
   'noted',
-  'archived',
 ]);
 
 export function validate_source_invariants(source: Source): void {

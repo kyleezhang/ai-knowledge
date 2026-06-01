@@ -279,6 +279,12 @@ describe('note workflows', () => {
       compose.data.note_id,
     ]);
     expect(show.data.note.conclusions).toEqual(['Confirmed conclusion']);
+    expect(show.data.note).toMatchObject({
+      version: 1,
+      root_note_id: compose.data.note_id,
+      supersedes_note_id: null,
+      superseded_by_note_id: null,
+    });
   });
 });
 

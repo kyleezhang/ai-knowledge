@@ -13,6 +13,8 @@ import type { LlmClient } from '../agents/types.js';
 import type { CollectorResult } from '../collectors/types.js';
 import type { DocumentProcessingResult } from '../processing/document-processor.js';
 import type { AnswerAgentInput } from '../agents/answer-agent.js';
+import { archive_note_workflow } from '../workflows/archive-note-workflow.js';
+import { archive_source_workflow } from '../workflows/archive-source-workflow.js';
 import type { DiscussionAgentInput } from '../agents/discussion-agent.js';
 import type { NoteAgentInput } from '../agents/note-agent.js';
 import type { UnderstandAgentInput } from '../agents/understand-agent.js';
@@ -45,6 +47,7 @@ import { select_candidate_workflow } from '../workflows/select-candidate-workflo
 import { show_candidate_workflow } from '../workflows/show-candidate-workflow.js';
 import { show_note_workflow } from '../workflows/show-note-workflow.js';
 import { show_source_workflow } from '../workflows/show-source-workflow.js';
+import { supersede_note_workflow } from '../workflows/supersede-note-workflow.js';
 import { understand_source_workflow } from '../workflows/understand-source-workflow.js';
 import type {
   NextAction,
@@ -501,6 +504,30 @@ export function create_program(
     });
 
   source
+    .command('archive')
+    .argument('<source_id>')
+    .option('--json', 'Output JSON')
+    .description('Archive a Source without deleting its artifacts.')
+    .action(async (source_id: string, options: { json?: boolean }) => {
+      const result = await archive_source_workflow({
+        source_id,
+        cwd: input.cwd,
+      });
+
+      if (options.json) {
+        print_json_result(result, io);
+        return;
+      }
+
+      if (!handle_result(result, io)) {
+        return;
+      }
+
+      io.stdout('Source archived.');
+      print_source_summary(result.data.source, io);
+    });
+
+  source
     .command('list')
     .option('--status <status>')
     .option('--json', 'Output JSON')
@@ -692,6 +719,62 @@ export function create_program(
       io.stdout(`note_id: ${result.data.index_entry.note_id}`);
       io.stdout(`summary: ${result.data.index_entry.summary}`);
     });
+
+  note
+    .command('archive')
+    .argument('<note_id>')
+    .option('--json', 'Output JSON')
+    .description('Archive a Note and remove it from main retrieval.')
+    .action(async (note_id: string, options: { json?: boolean }) => {
+      const result = await archive_note_workflow({ note_id, cwd: input.cwd });
+      if (options.json) {
+        print_json_result(result, io);
+        return;
+      }
+      if (!handle_result(result, io)) {
+        return;
+      }
+      io.stdout('Note archived.');
+      print_note_summary(result.data.note, io);
+    });
+
+  note
+    .command('supersede')
+    .argument('<old_note_id>')
+    .argument('<source_id>')
+    .option('--json', 'Output JSON')
+    .option('--related-note <note_id...>', 'Confirmed related Note id')
+    .description(
+      'Create a draft Note version that supersedes an approved Note.',
+    )
+    .action(
+      async (
+        old_note_id: string,
+        source_id: string,
+        options: { json?: boolean; relatedNote?: string[] },
+      ) => {
+        const result = await supersede_note_workflow({
+          old_note_id,
+          source_id,
+          cwd: input.cwd,
+          compose: input.compose_note,
+          confirmed_related_note_ids: options.relatedNote ?? [],
+        });
+        if (options.json) {
+          print_json_result(result, io);
+          return;
+        }
+        if (!handle_result(result, io)) {
+          return;
+        }
+        io.stdout('Note superseded.');
+        io.stdout('Old note:');
+        print_note_summary(result.data.old_note, io);
+        io.stdout('New note:');
+        print_note_summary(result.data.new_note, io);
+        print_next_actions(result.next_actions, io);
+      },
+    );
 
   note
     .command('list')
@@ -1064,6 +1147,10 @@ function print_note_summary(
     title: string;
     status: string;
     updated_at: string;
+    version: number;
+    root_note_id: string;
+    supersedes_note_id: string | null;
+    superseded_by_note_id: string | null;
     conclusions: string[];
     source_refs: unknown[];
     related_note_ids: string[];
@@ -1075,6 +1162,12 @@ function print_note_summary(
   io.stdout(`title: ${note_summary.title}`);
   io.stdout(`status: ${note_summary.status}`);
   io.stdout(`updated_at: ${note_summary.updated_at}`);
+  io.stdout(`version: ${note_summary.version}`);
+  io.stdout(`root_note_id: ${note_summary.root_note_id}`);
+  io.stdout(`supersedes_note_id: ${note_summary.supersedes_note_id ?? ''}`);
+  io.stdout(
+    `superseded_by_note_id: ${note_summary.superseded_by_note_id ?? ''}`,
+  );
   io.stdout(`conclusions: ${JSON.stringify(note_summary.conclusions)}`);
   io.stdout(`source_refs: ${JSON.stringify(note_summary.source_refs)}`);
   io.stdout(`related_note_ids: ${note_summary.related_note_ids.join(',')}`);

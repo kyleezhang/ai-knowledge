@@ -7,6 +7,9 @@ describe('note markdown renderer', () => {
     const markdown = render_note_markdown(create_test_note());
 
     expect(markdown).toContain('# Test Note');
+    expect(markdown).toContain('- 根笔记：note_20260514_test-note');
+    expect(markdown).toContain('- 替代笔记：无');
+    expect(markdown).toContain('- 被替代为：无');
     expect(markdown).toContain('## 来源概览');
     expect(markdown).toContain('## 为什么值得关注');
     expect(markdown).toContain('## 讨论后的结论');

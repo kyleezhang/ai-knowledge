@@ -85,6 +85,51 @@ describe('retrieve approved notes', () => {
     ).resolves.toEqual([]);
   });
 
+  it('skips index entries whose notes are no longer approved', async () => {
+    const cwd = await create_temp_dir();
+    const archived = approved_note({
+      id: 'note_20260514_archived-target',
+      title: 'Archived Target',
+      conclusion: 'Archived target.',
+    });
+    const superseded = approved_note({
+      id: 'note_20260514_superseded-target',
+      title: 'Superseded Target',
+      conclusion: 'Superseded target.',
+    });
+    await create_note(
+      {
+        note: { ...archived, status: 'archived' },
+        markdown: render_note_markdown({ ...archived, status: 'archived' }),
+      },
+      { cwd },
+    );
+    await create_note(
+      {
+        note: {
+          ...superseded,
+          status: 'superseded',
+          superseded_by_note_id: 'note_20260514_new-target',
+        },
+        markdown: render_note_markdown({
+          ...superseded,
+          status: 'superseded',
+          superseded_by_note_id: 'note_20260514_new-target',
+        }),
+      },
+      { cwd },
+    );
+    await save_index_entry(build_index_entry(archived), { cwd });
+    await save_index_entry(build_index_entry(superseded), { cwd });
+
+    await expect(
+      retrieve_approved_notes({ question: 'archived target', top_k: 5, cwd }),
+    ).resolves.toEqual([]);
+    await expect(
+      retrieve_approved_notes({ question: 'superseded target', top_k: 5, cwd }),
+    ).resolves.toEqual([]);
+  });
+
   it('skips index entries whose notes cannot be loaded', async () => {
     const cwd = await create_temp_dir();
     const note = approved_note({
