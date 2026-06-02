@@ -17,6 +17,7 @@ export type ArchiveNoteWorkflowData = {
   note_id: string;
   note: NoteSummary;
   index_entry_removed: boolean;
+  vector_index_removed: boolean;
 };
 
 export async function archive_note_workflow(
@@ -45,6 +46,7 @@ export async function archive_note_workflow(
         note_id: updated_note.id,
         note: summarize_note(updated_note),
         index_entry_removed,
+        vector_index_removed: index_entry_removed,
       },
     };
   } catch (error) {

@@ -1,4 +1,37 @@
 import { z } from 'zod';
+import type { Note } from './note.js';
+
+export const VectorIndexRefSchema = z.object({
+  index_id: z.string(),
+  path: z.string(),
+  embedding_model: z.string(),
+  embedding_dimensions: z.number().int().positive(),
+  chunker_version: z.string(),
+  created_at: z.string(),
+});
+
+export const EmbeddingMetadataSchema = z.object({
+  embedding_model: z.string(),
+  embedding_dimensions: z.number().int().positive(),
+});
+
+export const VectorIndexChunkSchema = z.object({
+  chunk_id: z.string(),
+  source_field: z.string(),
+  content_hash: z.string(),
+  text: z.string(),
+  embedding: z.array(z.number()),
+});
+
+export const VectorIndexSchema = z.object({
+  index_id: z.string(),
+  note_id: z.string(),
+  embedding_model: z.string(),
+  embedding_dimensions: z.number().int().positive(),
+  chunker_version: z.string(),
+  created_at: z.string(),
+  chunks: z.array(VectorIndexChunkSchema),
+});
 
 export const IndexEntrySchema = z.object({
   note_id: z.string(),
@@ -9,10 +42,78 @@ export const IndexEntrySchema = z.object({
   status: z.literal('approved'),
   approved_at: z.string(),
   related_note_ids: z.array(z.string()),
-  vector_ref: z.string().nullable(),
+  vector_ref: VectorIndexRefSchema.nullable(),
 });
 
+export type VectorIndexRef = z.infer<typeof VectorIndexRefSchema>;
+export type EmbeddingMetadata = z.infer<typeof EmbeddingMetadataSchema>;
+export type VectorIndexChunk = z.infer<typeof VectorIndexChunkSchema>;
+export type VectorIndex = z.infer<typeof VectorIndexSchema>;
 export type IndexEntry = z.infer<typeof IndexEntrySchema>;
+
+export function validate_vector_index(vector_index: VectorIndex): void {
+  if (vector_index.index_id.trim().length === 0) {
+    throw new Error('vector index must have index_id');
+  }
+  if (vector_index.note_id.trim().length === 0) {
+    throw new Error('vector index must have note_id');
+  }
+  if (vector_index.embedding_model.trim().length === 0) {
+    throw new Error('vector index must have embedding_model');
+  }
+  if (vector_index.chunker_version.trim().length === 0) {
+    throw new Error('vector index must have chunker_version');
+  }
+  if (vector_index.created_at.trim().length === 0) {
+    throw new Error('vector index must have created_at');
+  }
+  if (vector_index.chunks.length === 0) {
+    throw new Error('vector index must have chunks');
+  }
+
+  for (const chunk of vector_index.chunks) {
+    if (chunk.chunk_id.trim().length === 0) {
+      throw new Error('vector index chunk must have chunk_id');
+    }
+    if (chunk.source_field.trim().length === 0) {
+      throw new Error('vector index chunk must have source_field');
+    }
+    if (chunk.content_hash.trim().length === 0) {
+      throw new Error('vector index chunk must have content_hash');
+    }
+    if (chunk.text.trim().length === 0) {
+      throw new Error('vector index chunk must have text');
+    }
+    if (chunk.embedding.length !== vector_index.embedding_dimensions) {
+      throw new Error('vector index chunk embedding dimension mismatch');
+    }
+  }
+}
+
+export function assert_note_can_be_vector_indexed(note: Note): void {
+  if (note.status !== 'approved') {
+    throw new Error(
+      `Note must be approved before vector indexing. Current status: ${note.status}`,
+    );
+  }
+}
+
+export function validate_vector_index_for_note(
+  vector_index: VectorIndex,
+  note: Note,
+): void {
+  assert_note_can_be_vector_indexed(note);
+  validate_vector_index(vector_index);
+  if (vector_index.note_id !== note.id) {
+    throw new Error('vector index note_id must match note id');
+  }
+}
+
+export function parse_vector_index(value: unknown): VectorIndex {
+  const vector_index = VectorIndexSchema.parse(value);
+  validate_vector_index(vector_index);
+  return vector_index;
+}
 
 export function validate_index_entry(entry: IndexEntry): void {
   if (entry.note_id.trim().length === 0) {
@@ -23,6 +124,23 @@ export function validate_index_entry(entry: IndexEntry): void {
   }
   if (entry.summary.trim().length === 0) {
     throw new Error('index entry must have summary');
+  }
+  if (entry.vector_ref !== null) {
+    if (entry.vector_ref.index_id.trim().length === 0) {
+      throw new Error('index entry vector_ref must have index_id');
+    }
+    if (entry.vector_ref.path.trim().length === 0) {
+      throw new Error('index entry vector_ref must have path');
+    }
+    if (entry.vector_ref.embedding_model.trim().length === 0) {
+      throw new Error('index entry vector_ref must have embedding_model');
+    }
+    if (entry.vector_ref.chunker_version.trim().length === 0) {
+      throw new Error('index entry vector_ref must have chunker_version');
+    }
+    if (entry.vector_ref.created_at.trim().length === 0) {
+      throw new Error('index entry vector_ref must have created_at');
+    }
   }
 }
 

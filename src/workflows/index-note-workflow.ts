@@ -1,20 +1,31 @@
+import type { EmbeddingProvider } from '../agents/embedding-provider.js';
+import { UnsupportedEmbeddingProvider } from '../agents/embedding-provider.js';
 import { build_index_entry } from '../indexing/build-index-entry.js';
+import {
+  build_note_vector_chunks,
+  build_vector_index,
+} from '../indexing/build-vector-index.js';
 import type { IndexEntry } from '../domain/index-entry.js';
 import type { StorageConfig } from '../storage/config.js';
 import { StorageError } from '../storage/errors.js';
-import { save_index_entry } from '../storage/index-repo.js';
+import { save_index_entry, save_vector_index } from '../storage/index-repo.js';
 import { get_note } from '../storage/note-repo.js';
+import { vector_index_ref_path } from '../storage/paths.js';
 import type { WorkflowResult } from './types.js';
 
 export type IndexNoteWorkflowInput = {
   note_id: string;
   storage_config?: Partial<StorageConfig>;
   cwd?: string;
+  include_vector?: boolean;
+  embedding_provider?: EmbeddingProvider;
+  now?: Date;
 };
 
 export type IndexNoteWorkflowData = {
   note_id: string;
   index_entry: IndexEntry;
+  vector_index_ref: IndexEntry['vector_ref'];
 };
 
 export async function index_note_workflow(
@@ -33,7 +44,36 @@ export async function index_note_workflow(
       };
     }
 
-    const index_entry = build_index_entry(note);
+    let index_entry = build_index_entry(note);
+
+    if (input.include_vector === true) {
+      const chunks = build_note_vector_chunks(note);
+      const provider =
+        input.embedding_provider ?? new UnsupportedEmbeddingProvider();
+      const embedding_result = await provider.generate_embeddings({
+        texts: chunks.map((chunk) => chunk.text),
+      });
+      const vector_index = build_vector_index({
+        note,
+        chunks,
+        embeddings: embedding_result.embeddings,
+        metadata: embedding_result,
+        created_at: (input.now ?? new Date()).toISOString(),
+      });
+      await save_vector_index(vector_index, context);
+      index_entry = {
+        ...index_entry,
+        vector_ref: {
+          index_id: vector_index.index_id,
+          path: vector_index_ref_path(note.id),
+          embedding_model: vector_index.embedding_model,
+          embedding_dimensions: vector_index.embedding_dimensions,
+          chunker_version: vector_index.chunker_version,
+          created_at: vector_index.created_at,
+        },
+      };
+    }
+
     await save_index_entry(index_entry, context);
 
     return {
@@ -41,6 +81,7 @@ export async function index_note_workflow(
       data: {
         note_id: note.id,
         index_entry,
+        vector_index_ref: index_entry.vector_ref,
       },
     };
   } catch (error) {

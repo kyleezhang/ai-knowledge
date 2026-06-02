@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { default_quality_checks, type Note } from '../../src/domain/note.js';
 import { build_index_entry } from '../../src/indexing/build-index-entry.js';
 import { render_note_markdown } from '../../src/notes/render-markdown.js';
-import { get_index_entry } from '../../src/storage/index-repo.js';
+import {
+  get_index_entry,
+  get_vector_index,
+} from '../../src/storage/index-repo.js';
 import {
   create_note,
   get_note,
@@ -11,6 +14,7 @@ import {
 import { approve_note_workflow } from '../../src/workflows/approve-note-workflow.js';
 import { index_note_workflow } from '../../src/workflows/index-note-workflow.js';
 import { create_test_note } from '../note-test-helpers.js';
+import { FakeEmbeddingProvider } from '../fake-embedding-provider.js';
 import { create_temp_dir } from '../source-test-helpers.js';
 
 const passed_quality_checks: Note['quality_checks'] = {
@@ -97,6 +101,79 @@ describe('approve and index note workflows', () => {
     expect(index_entry).toEqual(build_index_entry(note));
     expect(reloaded).toEqual(note);
     expect(reloaded_markdown).toBe(markdown);
+  });
+
+  it('indexes an approved note with vector metadata when explicitly requested', async () => {
+    const cwd = await create_temp_dir();
+    const note = create_test_note({
+      status: 'approved',
+      approved_at: '2026-05-14T01:00:00.000Z',
+      quality_checks: passed_quality_checks,
+    });
+    await create_note({ note, markdown: render_note_markdown(note) }, { cwd });
+
+    const result = await index_note_workflow({
+      cwd,
+      note_id: note.id,
+      include_vector: true,
+      embedding_provider: new FakeEmbeddingProvider(),
+      now: new Date('2026-05-14T02:00:00.000Z'),
+    });
+    const index_entry = await get_index_entry(note.id, { cwd });
+    const vector_index = await get_vector_index(note.id, { cwd });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.vector_index_ref).toEqual(index_entry.vector_ref);
+    expect(index_entry.vector_ref).toMatchObject({
+      index_id: `vec_${note.id}`,
+      path: '2026/05/note_20260514_test-note.vector.json',
+      embedding_model: 'fake-embedding',
+      embedding_dimensions: 2,
+      created_at: '2026-05-14T02:00:00.000Z',
+    });
+    expect(vector_index.note_id).toBe(note.id);
+    expect(vector_index.chunks.length).toBeGreaterThan(0);
+  });
+
+  it('does not update vector_ref when vector indexing fails', async () => {
+    const cwd = await create_temp_dir();
+    const note = create_test_note({
+      status: 'approved',
+      approved_at: '2026-05-14T01:00:00.000Z',
+      quality_checks: passed_quality_checks,
+    });
+    await create_note({ note, markdown: render_note_markdown(note) }, { cwd });
+
+    const result = await index_note_workflow({
+      cwd,
+      note_id: note.id,
+      include_vector: true,
+      embedding_provider: new FakeEmbeddingProvider(
+        new Error('provider failed'),
+      ),
+    });
+
+    expect(result.ok).toBe(false);
+    await expect(get_index_entry(note.id, { cwd })).rejects.toBeDefined();
+    await expect(get_vector_index(note.id, { cwd })).rejects.toBeDefined();
+  });
+
+  it('keeps default P0 indexing vector_ref null', async () => {
+    const cwd = await create_temp_dir();
+    const note = create_test_note({
+      status: 'approved',
+      approved_at: '2026-05-14T01:00:00.000Z',
+      quality_checks: passed_quality_checks,
+    });
+    await create_note({ note, markdown: render_note_markdown(note) }, { cwd });
+
+    const result = await index_note_workflow({ cwd, note_id: note.id });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.index_entry.vector_ref).toBeNull();
+    expect(result.data.vector_index_ref).toBeNull();
   });
 
   it('rejects indexing non-approved notes', async () => {

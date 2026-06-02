@@ -9,6 +9,7 @@ import type {
   GroundedAnswer,
   NoteCandidate,
 } from '../agents/schemas.js';
+import type { EmbeddingProvider } from '../agents/embedding-provider.js';
 import type { LlmClient } from '../agents/types.js';
 import type { CollectorResult } from '../collectors/types.js';
 import type { DocumentProcessingResult } from '../processing/document-processor.js';
@@ -81,6 +82,7 @@ export function create_program(
       llm_client: LlmClient;
       agent_input: AnswerAgentInput;
     }) => Promise<GroundedAnswer>;
+    embedding_provider?: EmbeddingProvider;
     repl_input?: AsyncIterable<string>;
     fetch_html?: (url: string) => Promise<string>;
     read_feishu_doc?: FeishuDocReader;
@@ -705,20 +707,38 @@ export function create_program(
     .command('index')
     .argument('<note_id>')
     .option('--json', 'Output JSON')
+    .option('--vector', 'Build vector index metadata')
     .description('Index an approved Note.')
-    .action(async (note_id: string, options: { json?: boolean }) => {
-      const result = await index_note_workflow({ note_id, cwd: input.cwd });
-      if (options.json) {
-        print_json_result(result, io);
-        return;
-      }
-      if (!handle_result(result, io)) {
-        return;
-      }
-      io.stdout('Note indexed.');
-      io.stdout(`note_id: ${result.data.index_entry.note_id}`);
-      io.stdout(`summary: ${result.data.index_entry.summary}`);
-    });
+    .action(
+      async (
+        note_id: string,
+        options: { json?: boolean; vector?: boolean },
+      ) => {
+        const result = await index_note_workflow({
+          note_id,
+          cwd: input.cwd,
+          include_vector: options.vector === true,
+          embedding_provider: input.embedding_provider,
+        });
+        if (options.json) {
+          print_json_result(result, io);
+          return;
+        }
+        if (!handle_result(result, io)) {
+          return;
+        }
+        io.stdout('Note indexed.');
+        io.stdout(`note_id: ${result.data.index_entry.note_id}`);
+        io.stdout(`summary: ${result.data.index_entry.summary}`);
+        io.stdout(
+          `vector_ref: ${
+            result.data.vector_index_ref === null
+              ? 'null'
+              : result.data.vector_index_ref.path
+          }`,
+        );
+      },
+    );
 
   note
     .command('archive')

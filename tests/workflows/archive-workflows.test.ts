@@ -4,7 +4,10 @@ import { describe, expect, it } from 'vitest';
 import { build_index_entry } from '../../src/indexing/build-index-entry.js';
 import { render_note_markdown } from '../../src/notes/render-markdown.js';
 import { retrieve_approved_notes } from '../../src/retrieval/retrieve-approved-notes.js';
-import { save_index_entry } from '../../src/storage/index-repo.js';
+import {
+  save_index_entry,
+  save_vector_index,
+} from '../../src/storage/index-repo.js';
 import {
   create_note,
   get_note,
@@ -12,6 +15,7 @@ import {
 } from '../../src/storage/note-repo.js';
 import { get_source, save_source } from '../../src/storage/source-repo.js';
 import { archive_note_workflow } from '../../src/workflows/archive-note-workflow.js';
+import { vector_index_path } from '../../src/storage/paths.js';
 import { archive_source_workflow } from '../../src/workflows/archive-source-workflow.js';
 import { ingest_markdown_workflow } from '../../src/workflows/ingest-markdown-workflow.js';
 import { process_source_workflow } from '../../src/workflows/process-source-workflow.js';
@@ -129,6 +133,27 @@ describe('archive workflows', () => {
     const markdown = render_note_markdown(note);
     await create_note({ note, markdown }, { cwd });
     await save_index_entry(build_index_entry(note), { cwd });
+    await save_vector_index(
+      {
+        index_id: `vec_${note.id}`,
+        note_id: note.id,
+        embedding_model: 'fake-embedding',
+        embedding_dimensions: 1,
+        chunker_version: 'note-json-v1',
+        created_at: '2026-05-14T01:30:00.000Z',
+        chunks: [
+          {
+            chunk_id: 'chunk_0001',
+            source_field: 'title',
+            content_hash: 'abc123',
+            text: note.title,
+            embedding: [0.1],
+          },
+        ],
+      },
+      { cwd },
+    );
+    const vector_path = vector_index_path(note.id, { cwd });
 
     const result = await archive_note_workflow({
       cwd,
@@ -146,10 +171,12 @@ describe('archive workflows', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.index_entry_removed).toBe(true);
+    expect(result.data.vector_index_removed).toBe(true);
     expect(archived_note.status).toBe('archived');
     expect(archived_note.updated_at).toBe('2026-05-14T02:00:00.000Z');
     expect(archived_markdown).toBe(markdown);
     expect(matches).toEqual([]);
+    await expect(access(vector_path)).rejects.toBeDefined();
     await expect(
       readdir(path.join(cwd, 'knowledge', 'index', '2026', '05')),
     ).resolves.toEqual([]);

@@ -58,6 +58,7 @@ export type SupersedeNoteWorkflowData = {
   new_note: NoteSummary;
   source: SourceSummary;
   index_entry_removed: boolean;
+  vector_index_removed: boolean;
 };
 
 export async function supersede_note_workflow(
@@ -219,6 +220,7 @@ export async function supersede_note_workflow(
         new_note: summarize_note(created_note),
         source: summarize_source(updated_source),
         index_entry_removed,
+        vector_index_removed: index_entry_removed,
       },
       next_actions: next_actions_for_note(created_note.id),
     };

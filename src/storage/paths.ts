@@ -53,6 +53,19 @@ export function index_entry_path(
   return path.join(index_root(context), year, month, `${note_id}.index.json`);
 }
 
+export function vector_index_path(
+  note_id: string,
+  context: StoragePathContext = {},
+): string {
+  const { year, month } = note_year_month(note_id);
+  return path.join(index_root(context), year, month, `${note_id}.vector.json`);
+}
+
+export function vector_index_ref_path(note_id: string): string {
+  const { year, month } = note_year_month(note_id);
+  return path.posix.join(year, month, `${note_id}.vector.json`);
+}
+
 export function note_dir(
   note_id: string,
   context: StoragePathContext = {},

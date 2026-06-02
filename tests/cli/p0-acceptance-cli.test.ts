@@ -7,6 +7,7 @@ import type {
   GroundedAnswer,
   NoteCandidate,
 } from '../../src/agents/schemas.js';
+import type { EmbeddingProvider } from '../../src/agents/embedding-provider.js';
 import type { LlmClient } from '../../src/agents/types.js';
 import type { AnswerAgentInput } from '../../src/agents/answer-agent.js';
 import type { DiscussionAgentInput } from '../../src/agents/discussion-agent.js';
@@ -14,7 +15,10 @@ import type { NoteAgentInput } from '../../src/agents/note-agent.js';
 import type { UnderstandAgentInput } from '../../src/agents/understand-agent.js';
 import { create_program, type CliIo } from '../../src/cli/index.js';
 import { read_discussion_messages } from '../../src/storage/discussion-log.js';
-import { get_index_entry } from '../../src/storage/index-repo.js';
+import {
+  get_index_entry,
+  get_vector_index,
+} from '../../src/storage/index-repo.js';
 import { get_note } from '../../src/storage/note-repo.js';
 import {
   index_entry_path,
@@ -30,6 +34,7 @@ import {
   create_temp_dir,
   write_markdown_fixture,
 } from '../source-test-helpers.js';
+import { FakeEmbeddingProvider } from '../fake-embedding-provider.js';
 
 const acceptance_fixture_file = new URL(
   '../p0-end-to-end-acceptance.fixture.md',
@@ -187,8 +192,42 @@ describe('P0 end-to-end acceptance CLI', () => {
       ok: true,
       data: {
         index_entry: { note_id, status: 'approved', vector_ref: null },
+        vector_index_ref: null,
       },
     });
+
+    const vector_index_harness = create_cli_harness(cwd, {
+      embedding_provider: new FakeEmbeddingProvider(),
+    });
+    await vector_index_harness.run([
+      'note',
+      'index',
+      note_id,
+      '--vector',
+      '--json',
+    ]);
+    const vector_index_json = JSON.parse(vector_index_harness.stdout[0]) as {
+      ok: true;
+      data: { vector_index_ref: { path: string } };
+    };
+    expect(vector_index_json.data.vector_index_ref.path).toMatch(
+      new RegExp(`^\\d{4}/\\d{2}/${note_id}\\.vector\\.json$`),
+    );
+    await expect(get_vector_index(note_id, { cwd })).resolves.toMatchObject({
+      note_id,
+      embedding_model: 'fake-embedding',
+    });
+
+    const failed_vector_harness = create_cli_harness(cwd, {
+      embedding_provider: new FakeEmbeddingProvider(
+        new Error('provider failed'),
+      ),
+    });
+    await failed_vector_harness.run(['note', 'index', note_id, '--vector']);
+    expect(failed_vector_harness.exit_code).toBe(1);
+    expect(failed_vector_harness.stderr.join('\n')).toContain(
+      'provider failed',
+    );
 
     let answer_input: AnswerAgentInput | undefined;
     const answer_harness = create_cli_harness(cwd, {
@@ -315,6 +354,7 @@ function create_cli_harness(
       agent_input: AnswerAgentInput;
     }) => Promise<GroundedAnswer>;
     repl_input?: AsyncIterable<string>;
+    embedding_provider?: EmbeddingProvider;
   } = {},
 ): {
   stdout: string[];
@@ -348,6 +388,7 @@ function create_cli_harness(
         compose_note: options.compose_note,
         answer: options.answer,
         repl_input: options.repl_input,
+        embedding_provider: options.embedding_provider,
       }).parseAsync(['node', 'ai-knowledge', ...args]);
     },
   };
