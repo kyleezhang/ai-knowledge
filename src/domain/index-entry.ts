@@ -33,6 +33,33 @@ export const VectorIndexSchema = z.object({
   chunks: z.array(VectorIndexChunkSchema),
 });
 
+export const UnconfirmedEvidenceSchema = z.object({
+  confirmation_status: z.literal('unconfirmed'),
+  material_type: z.enum([
+    'processed_segment',
+    'processed_text',
+    'draft_understanding',
+    'discussion_summary',
+  ]),
+  source_id: z.string(),
+  source_title: z.string(),
+  source_status: z.string(),
+  evidence_ref: z.string(),
+  excerpt: z.string(),
+  limitations: z.array(z.string()),
+});
+
+export const AnswerFallbackOptionsSchema = z.object({
+  enabled: z.boolean(),
+  max_items: z.number().int().positive().optional(),
+  max_excerpt_length: z.number().int().positive().optional(),
+});
+
+export const AnswerFallbackResultSchema = z.object({
+  enabled: z.boolean(),
+  evidence: z.array(UnconfirmedEvidenceSchema),
+});
+
 export const HybridRetrievalSignalSchema = z.object({
   type: z.enum(['keyword', 'metadata', 'vector']),
   score: z.number().min(0),
@@ -86,6 +113,9 @@ export type VectorIndexRef = z.infer<typeof VectorIndexRefSchema>;
 export type EmbeddingMetadata = z.infer<typeof EmbeddingMetadataSchema>;
 export type VectorIndexChunk = z.infer<typeof VectorIndexChunkSchema>;
 export type VectorIndex = z.infer<typeof VectorIndexSchema>;
+export type UnconfirmedEvidence = z.infer<typeof UnconfirmedEvidenceSchema>;
+export type AnswerFallbackOptions = z.infer<typeof AnswerFallbackOptionsSchema>;
+export type AnswerFallbackResult = z.infer<typeof AnswerFallbackResultSchema>;
 export type HybridRetrievalSignal = z.infer<typeof HybridRetrievalSignalSchema>;
 export type MetadataFilter = z.infer<typeof MetadataFilterSchema>;
 export type HybridRetrievalOptions = z.infer<
@@ -93,6 +123,50 @@ export type HybridRetrievalOptions = z.infer<
 >;
 export type HybridRetrievalResult = z.infer<typeof HybridRetrievalResultSchema>;
 export type IndexEntry = z.infer<typeof IndexEntrySchema>;
+
+export function validate_unconfirmed_evidence(
+  evidence: UnconfirmedEvidence,
+): void {
+  if (evidence.confirmation_status !== 'unconfirmed') {
+    throw new Error('unconfirmed evidence must be labeled unconfirmed');
+  }
+  if (evidence.source_id.trim().length === 0) {
+    throw new Error('unconfirmed evidence must have source_id');
+  }
+  if (evidence.source_title.trim().length === 0) {
+    throw new Error('unconfirmed evidence must have source_title');
+  }
+  if (evidence.source_status.trim().length === 0) {
+    throw new Error('unconfirmed evidence must have source_status');
+  }
+  if (evidence.evidence_ref.trim().length === 0) {
+    throw new Error('unconfirmed evidence must have evidence_ref');
+  }
+  if (evidence.excerpt.trim().length === 0) {
+    throw new Error('unconfirmed evidence must have excerpt');
+  }
+  if (evidence.limitations.length === 0) {
+    throw new Error('unconfirmed evidence must have limitations');
+  }
+}
+
+export function parse_unconfirmed_evidence(
+  value: unknown,
+): UnconfirmedEvidence {
+  const evidence = UnconfirmedEvidenceSchema.parse(value);
+  validate_unconfirmed_evidence(evidence);
+  return evidence;
+}
+
+export function parse_answer_fallback_result(
+  value: unknown,
+): AnswerFallbackResult {
+  const result = AnswerFallbackResultSchema.parse(value);
+  for (const evidence of result.evidence) {
+    validate_unconfirmed_evidence(evidence);
+  }
+  return result;
+}
 
 export function validate_hybrid_retrieval_result(
   result: HybridRetrievalResult,

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { UnconfirmedEvidenceSchema } from '../domain/index-entry.js';
 import { SourceRefSchema } from '../domain/note.js';
 
 export const DraftUnderstandingCandidateSchema = z.object({
@@ -59,7 +60,7 @@ export const CitedNoteSchema = z.object({
 export const GroundedAnswerSchema = z.object({
   conclusion: z.string(),
   cited_notes: z.array(CitedNoteSchema),
-  unconfirmed_materials: z.array(z.never()),
+  unconfirmed_materials: z.array(UnconfirmedEvidenceSchema),
   limitations: z.array(z.string()),
 });
 

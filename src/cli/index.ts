@@ -48,6 +48,13 @@ import { select_candidate_workflow } from '../workflows/select-candidate-workflo
 import { show_candidate_workflow } from '../workflows/show-candidate-workflow.js';
 import { show_note_workflow } from '../workflows/show-note-workflow.js';
 import { show_source_workflow } from '../workflows/show-source-workflow.js';
+import {
+  enqueue_task_workflow,
+  list_tasks_workflow,
+  retry_task_workflow,
+  run_task_workflow,
+  show_task_workflow,
+} from '../workflows/task-workflows.js';
 import { supersede_note_workflow } from '../workflows/supersede-note-workflow.js';
 import { understand_source_workflow } from '../workflows/understand-source-workflow.js';
 import type {
@@ -273,12 +280,21 @@ export function create_program(
     .argument('<question>')
     .option('--top-k <n>', 'Maximum approved Notes to retrieve')
     .option('--hybrid', 'Use hybrid keyword metadata vector retrieval')
+    .option(
+      '--fallback-unconfirmed',
+      'Use explicitly labeled unconfirmed materials when approved Notes do not match',
+    )
     .option('--json', 'Output JSON')
     .description('Answer a question from approved Notes.')
     .action(
       async (
         question: string,
-        options: { topK?: string; hybrid?: boolean; json?: boolean },
+        options: {
+          topK?: string;
+          hybrid?: boolean;
+          fallbackUnconfirmed?: boolean;
+          json?: boolean;
+        },
       ) => {
         const top_k =
           options.topK === undefined ? undefined : Number(options.topK);
@@ -290,6 +306,7 @@ export function create_program(
           retrieval_mode: options.hybrid === true ? 'hybrid' : 'default',
           include_retrieval_debug: options.json === true,
           embedding_provider: input.embedding_provider,
+          fallback_to_unconfirmed: options.fallbackUnconfirmed === true,
         });
 
         if (options.json) {
@@ -300,8 +317,118 @@ export function create_program(
           return;
         }
         print_grounded_answer(result.data.answer, io);
+        print_unconfirmed_materials(result.data.unconfirmed_materials, io);
       },
     );
+
+  const task = program.command('task').description('Manage local async tasks.');
+
+  task
+    .command('enqueue')
+    .argument('<type>')
+    .argument('<target_id>')
+    .option('--json', 'Output JSON')
+    .description('Enqueue a local async task.')
+    .action(
+      async (type: string, target_id: string, options: { json?: boolean }) => {
+        const payload = build_task_payload(type, target_id);
+        if (payload === null) {
+          io.stderr(`Unsupported task type: ${type}`);
+          io.set_exit_code(1);
+          return;
+        }
+        const result = await enqueue_task_workflow({ cwd: input.cwd, payload });
+        if (options.json) {
+          print_json_result(result, io);
+          return;
+        }
+        if (!handle_result(result, io)) {
+          return;
+        }
+        print_task_summary(result.data.summary, io);
+      },
+    );
+
+  task
+    .command('run')
+    .argument('[task_id]')
+    .option('--json', 'Output JSON')
+    .description('Run one local async task.')
+    .action(
+      async (task_id: string | undefined, options: { json?: boolean }) => {
+        const result = await run_task_workflow({
+          cwd: input.cwd,
+          task_id,
+          embedding_provider: input.embedding_provider,
+        });
+        if (options.json) {
+          print_json_result(result, io);
+          return;
+        }
+        if (!handle_result(result, io)) {
+          return;
+        }
+        print_task_summary(result.data.summary, io);
+      },
+    );
+
+  task
+    .command('retry')
+    .argument('<task_id>')
+    .option('--json', 'Output JSON')
+    .description('Retry a retryable local async task.')
+    .action(async (task_id: string, options: { json?: boolean }) => {
+      const result = await retry_task_workflow({ cwd: input.cwd, task_id });
+      if (options.json) {
+        print_json_result(result, io);
+        return;
+      }
+      if (!handle_result(result, io)) {
+        return;
+      }
+      print_task_summary(result.data.summary, io);
+    });
+
+  task
+    .command('list')
+    .option('--json', 'Output JSON')
+    .description('List local async tasks.')
+    .action(async (options: { json?: boolean }) => {
+      const result = await list_tasks_workflow({ cwd: input.cwd });
+      if (options.json) {
+        print_json_result(result, io);
+        return;
+      }
+      if (!handle_result(result, io)) {
+        return;
+      }
+      for (const summary of result.data.tasks) {
+        print_task_summary(summary, io);
+      }
+    });
+
+  task
+    .command('show')
+    .argument('<task_id>')
+    .option('--json', 'Output JSON')
+    .description('Show a local async task.')
+    .action(async (task_id: string, options: { json?: boolean }) => {
+      const result = await show_task_workflow({ cwd: input.cwd, task_id });
+      if (options.json) {
+        print_json_result(result, io);
+        return;
+      }
+      if (!handle_result(result, io)) {
+        return;
+      }
+      print_task_summary(result.data.summary, io);
+      for (const attempt of result.data.task.attempts) {
+        io.stdout(`attempt ${attempt.attempt_number}: ${attempt.status}`);
+        if (attempt.error !== null) {
+          io.stdout(`  error: ${attempt.error.code} ${attempt.error.message}`);
+        }
+      }
+    });
 
   const source = program.command('source').description('Manage Sources.');
 
@@ -1086,6 +1213,77 @@ function print_draft_understanding(
     `  discussion_starters: ${JSON.stringify(draft.discussion_starters)}`,
   );
   io.stdout(`  generated_at: ${draft.generated_at}`);
+}
+
+function build_task_payload(
+  type: string,
+  target_id: string,
+):
+  | { type: 'source.process'; input: { source_id: string } }
+  | { type: 'source.understand'; input: { source_id: string } }
+  | { type: 'note.index'; input: { note_id: string } }
+  | { type: 'note.vector_index'; input: { note_id: string } }
+  | null {
+  switch (type) {
+    case 'source.process':
+      return { type, input: { source_id: target_id } };
+    case 'source.understand':
+      return { type, input: { source_id: target_id } };
+    case 'note.index':
+      return { type, input: { note_id: target_id } };
+    case 'note.vector_index':
+      return { type, input: { note_id: target_id } };
+    default:
+      return null;
+  }
+}
+
+function print_task_summary(
+  summary: {
+    task_id: string;
+    type: string;
+    status: string;
+    attempts: number;
+    updated_at: string;
+    last_error: { code: string; message: string } | null;
+  },
+  io: CliIo,
+): void {
+  io.stdout(
+    `${summary.task_id} ${summary.type} ${summary.status} attempts=${summary.attempts}`,
+  );
+  if (summary.last_error !== null) {
+    io.stdout(
+      `error: ${summary.last_error.code} ${summary.last_error.message}`,
+    );
+  }
+}
+
+function print_unconfirmed_materials(
+  materials: Array<{
+    material_type: string;
+    source_id: string;
+    source_title: string;
+    evidence_ref: string;
+    excerpt: string;
+    limitations: string[];
+  }>,
+  io: CliIo,
+): void {
+  if (materials.length === 0) {
+    return;
+  }
+  io.stdout('');
+  io.stdout('Unconfirmed materials:');
+  for (const material of materials) {
+    io.stdout(
+      `- [unconfirmed:${material.material_type}] ${material.source_title} (${material.source_id}) ${material.evidence_ref}`,
+    );
+    io.stdout(`  excerpt: ${material.excerpt}`);
+    for (const limitation of material.limitations) {
+      io.stdout(`  limitation: ${limitation}`);
+    }
+  }
 }
 
 function print_grounded_answer(answer: GroundedAnswer, io: CliIo): void {

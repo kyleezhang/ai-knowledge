@@ -110,3 +110,28 @@ The system SHALL expose draft understanding generation through `ai-knowledge sou
 - **THEN** the CLI returns a JSON representation of the workflow result
 - **AND** the JSON includes the generated `draft_understanding`
 
+### Requirement: Draft Understanding May Be Labeled Fallback Evidence
+The system SHALL allow `draft_understanding` to be used as unconfirmed fallback evidence only when answer fallback is explicitly enabled. Draft understanding MUST remain discussion-stage understanding and MUST NOT be treated as formal knowledge.
+
+#### Scenario: Draft understanding supports fallback
+- **WHEN** a Source has relevant `draft_understanding` and fallback is enabled
+- **THEN** answer workflow may include it as unconfirmed evidence
+- **AND** labels it with `material_type = draft_understanding`
+
+#### Scenario: Draft understanding is used for fallback
+- **WHEN** draft understanding is included in answer fallback
+- **THEN** no Note is created from it
+- **AND** no Source status is changed
+
+### Requirement: Draft Understanding May Run As Local Task
+The system SHALL allow draft understanding generation to be enqueued and run as a local task. The task runner MUST call the existing understanding workflow and MUST preserve processed artifact and LLM schema validation gates.
+
+#### Scenario: Understanding task runs
+- **WHEN** a `source.understand` task is executed for a processed Source
+- **THEN** the runner calls the draft understanding workflow
+- **AND** LLM output must pass schema validation before Source state changes
+
+#### Scenario: Understanding task runs too early
+- **WHEN** a `source.understand` task targets a Source without processed artifacts
+- **THEN** the task attempt records a non-retryable failure
+- **AND** no `draft_understanding` is created

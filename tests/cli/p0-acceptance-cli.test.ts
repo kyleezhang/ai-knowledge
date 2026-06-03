@@ -284,6 +284,86 @@ describe('P0 end-to-end acceptance CLI', () => {
     expect(hybrid_answer_json.data.matched_note_ids).toEqual([note_id]);
     expect(hybrid_answer_json.data.retrieval_results[0].note_id).toBe(note_id);
 
+    const fallback_fixture = await write_markdown_fixture(
+      cwd,
+      'fallback-cli.md',
+      `# Fallback CLI\n\nFallback CLI evidence exists only as processed material.\n`,
+    );
+    const fallback_ingest = create_cli_harness(cwd);
+    await fallback_ingest.run([
+      'source',
+      'ingest',
+      'markdown',
+      fallback_fixture,
+      '--json',
+    ]);
+    const fallback_source_id = (
+      JSON.parse(fallback_ingest.stdout[0]) as {
+        ok: true;
+        data: { source_id: string };
+      }
+    ).data.source_id;
+    const fallback_process = create_cli_harness(cwd);
+    await fallback_process.run([
+      'source',
+      'process',
+      fallback_source_id,
+      '--json',
+    ]);
+
+    const fallback_json_harness = create_cli_harness(cwd, {
+      answer: async ({ agent_input }) => ({
+        conclusion: 'Fallback CLI material is unconfirmed.',
+        cited_notes: [],
+        unconfirmed_materials: agent_input.unconfirmed_materials ?? [],
+        limitations: ['Uses unconfirmed material.'],
+      }),
+    });
+    await fallback_json_harness.run([
+      'answer',
+      'fallback cli evidence',
+      '--fallback-unconfirmed',
+      '--json',
+    ]);
+    const fallback_answer_json = JSON.parse(
+      fallback_json_harness.stdout[0],
+    ) as {
+      ok: true;
+      data: {
+        unconfirmed_materials: Array<{
+          material_type: string;
+          source_id: string;
+          evidence_ref: string;
+          limitations: string[];
+        }>;
+      };
+    };
+    expect(fallback_answer_json.data.unconfirmed_materials[0]).toMatchObject({
+      material_type: 'processed_segment',
+      source_id: fallback_source_id,
+      evidence_ref: 'processed/segments.json#seg_0001',
+    });
+
+    const fallback_text_harness = create_cli_harness(cwd, {
+      answer: async ({ agent_input }) => ({
+        conclusion: 'Fallback CLI material is unconfirmed.',
+        cited_notes: [],
+        unconfirmed_materials: agent_input.unconfirmed_materials ?? [],
+        limitations: ['Uses unconfirmed material.'],
+      }),
+    });
+    await fallback_text_harness.run([
+      'answer',
+      'fallback cli evidence',
+      '--fallback-unconfirmed',
+    ]);
+    expect(fallback_text_harness.stdout.join('\n')).toContain(
+      'Unconfirmed materials:',
+    );
+    expect(fallback_text_harness.stdout.join('\n')).toContain(
+      '[unconfirmed:processed_segment]',
+    );
+
     await expect(access(knowledge_dir({ cwd }))).resolves.toBeUndefined();
     await expect(
       access(source_json_path(source_id, { cwd })),

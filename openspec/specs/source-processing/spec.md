@@ -224,3 +224,36 @@ The system SHALL process accepted URL Sources by reading `raw/fetched.html` from
 - **AND** `locator.position` equals the segment order
 - **AND** `locator.heading_path` equals the segment heading path
 - **AND** locator includes heading path, block identifier, or equivalent imported document position when available
+
+### Requirement: Processed Artifacts May Support Explicit Answer Fallback
+The system SHALL allow processed Source artifacts to support answer fallback only when fallback is explicitly enabled. Processed artifacts used for fallback MUST be labeled unconfirmed and MUST remain separate from approved Note evidence.
+
+#### Scenario: Processed segments support fallback
+- **WHEN** a processed Source has relevant processed segments and fallback is enabled
+- **THEN** the answer workflow may use those segments as unconfirmed fallback evidence
+- **AND** preserves the processed segment locator as `evidence_ref`
+
+#### Scenario: Fallback is not enabled
+- **WHEN** a processed Source has relevant artifacts but fallback is not enabled
+- **THEN** answer workflow does not use those artifacts
+
+### Requirement: Raw Artifacts Are Not Fallback Answer Evidence
+The system SHALL NOT use raw Source artifacts directly as answer fallback evidence.
+
+#### Scenario: Raw artifact matches question
+- **WHEN** a Source raw artifact contains text relevant to the question
+- **THEN** fallback retrieval does not read it as answer evidence
+- **AND** the Source must be processed before structured fallback evidence can be used
+
+### Requirement: Source Processing May Run As Local Task
+The system SHALL allow Source processing to be enqueued and run as a local task. Task execution MUST call the existing Source processing workflow and preserve processing state gates.
+
+#### Scenario: Source processing task runs
+- **WHEN** a `source.process` task is executed for an ingested Source
+- **THEN** the runner calls the Source processing workflow
+- **AND** the Source may transition through the normal processing workflow
+
+#### Scenario: Source processing task is invalid
+- **WHEN** a `source.process` task targets a Source that cannot be processed in its current state
+- **THEN** the task attempt records a non-retryable failure
+- **AND** the runner does not directly modify Source status

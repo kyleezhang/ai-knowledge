@@ -1,3 +1,4 @@
+import type { UnconfirmedEvidence } from '../domain/index-entry.js';
 import type { Note } from '../domain/note.js';
 import { AgentError } from './errors.js';
 import { GroundedAnswerSchema, type GroundedAnswer } from './schemas.js';
@@ -7,6 +8,7 @@ import type { GenerateJsonInput, LlmClient } from './types.js';
 export type AnswerAgentInput = {
   question: string;
   approved_notes: Note[];
+  unconfirmed_materials?: UnconfirmedEvidence[];
 };
 
 export async function answer_agent(input: {
@@ -49,10 +51,15 @@ export function build_answer_user_prompt(input: AnswerAgentInput): string {
     '## Approved Notes',
     json_block(input.approved_notes),
     '',
-    '## P0 Rules',
-    '- Use only approved Notes as evidence.',
-    '- Do not fallback to Source, draft_understanding, or discussion_summary.',
-    '- Return unconfirmed_materials as an empty array.',
+    '## Unconfirmed Materials',
+    json_block(input.unconfirmed_materials ?? []),
+    '',
+    '## Evidence Rules',
+    '- Treat approved Notes as primary evidence.',
+    '- Treat unconfirmed_materials only as explicitly unconfirmed secondary evidence.',
+    '- Do not present unconfirmed materials as approved knowledge or settled conclusions.',
+    '- Preserve unconfirmed material limitations in the output.',
+    '- If unconfirmed_materials is empty, return unconfirmed_materials as an empty array.',
   ].join('\n');
 }
 

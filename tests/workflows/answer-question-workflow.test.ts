@@ -2,13 +2,22 @@ import { describe, expect, it } from 'vitest';
 import { build_index_entry } from '../../src/indexing/build-index-entry.js';
 import { render_note_markdown } from '../../src/notes/render-markdown.js';
 import { create_candidate } from '../../src/storage/candidate-repo.js';
-import { save_index_entry } from '../../src/storage/index-repo.js';
+import {
+  save_index_entry,
+  list_index_entries,
+} from '../../src/storage/index-repo.js';
 import { archive_note_workflow } from '../../src/workflows/archive-note-workflow.js';
-import { create_note } from '../../src/storage/note-repo.js';
+import { create_note, list_notes } from '../../src/storage/note-repo.js';
+import { get_source } from '../../src/storage/source-repo.js';
 import { answer_question_workflow } from '../../src/workflows/answer-question-workflow.js';
 import { create_test_candidate } from '../candidate-test-helpers.js';
 import { create_test_note } from '../note-test-helpers.js';
-import { create_temp_dir } from '../source-test-helpers.js';
+import {
+  create_temp_dir,
+  write_markdown_fixture,
+} from '../source-test-helpers.js';
+import { ingest_markdown_workflow } from '../../src/workflows/ingest-markdown-workflow.js';
+import { process_source_workflow } from '../../src/workflows/process-source-workflow.js';
 
 const passed_quality_checks = {
   status: 'passed',
@@ -50,6 +59,7 @@ describe('answer question workflow', () => {
     expect(called).toBe(false);
     expect(result.data.answer.conclusion).toBe('没有相关已确认知识。');
     expect(result.data.retrieval_results).toEqual([]);
+    expect(result.data.unconfirmed_materials).toEqual([]);
   });
 
   it('answers from matching approved notes', async () => {
@@ -82,6 +92,85 @@ describe('answer question workflow', () => {
     if (!result.ok) return;
     expect(result.data.matched_note_ids).toEqual([note.id]);
     expect(result.data.answer.cited_notes[0].note_id).toBe(note.id);
+  });
+
+  it('uses explicit fallback only when enabled and keeps state unchanged', async () => {
+    const cwd = await create_temp_dir();
+    const fixture = await write_markdown_fixture(
+      cwd,
+      'fallback-answer.md',
+      `# Fallback Source\n\nFallback workflow evidence appears in processed material.\n`,
+    );
+    const ingest = await ingest_markdown_workflow({ cwd, file_path: fixture });
+    if (!ingest.ok) throw new Error(ingest.error.message);
+    const process = await process_source_workflow({
+      cwd,
+      source_id: ingest.data.source_id,
+    });
+    if (!process.ok) throw new Error(process.error.message);
+    const before_source = await get_source(ingest.data.source_id, { cwd });
+    const before_notes = await list_notes({}, { cwd });
+    const before_index = await list_index_entries({ cwd });
+    let received_unconfirmed = false;
+
+    const result = await answer_question_workflow({
+      cwd,
+      question: 'fallback workflow evidence',
+      fallback_to_unconfirmed: true,
+      answer: async ({ agent_input }) => {
+        received_unconfirmed =
+          agent_input.approved_notes.length === 0 &&
+          (agent_input.unconfirmed_materials?.length ?? 0) > 0;
+        return {
+          conclusion: 'Unconfirmed fallback suggests relevant material exists.',
+          cited_notes: [],
+          unconfirmed_materials: agent_input.unconfirmed_materials ?? [],
+          limitations: ['Uses unconfirmed material.'],
+        };
+      },
+    });
+    const after_source = await get_source(ingest.data.source_id, { cwd });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(received_unconfirmed).toBe(true);
+    expect(result.data.matched_note_ids).toEqual([]);
+    expect(result.data.unconfirmed_materials[0]).toMatchObject({
+      confirmation_status: 'unconfirmed',
+      source_id: ingest.data.source_id,
+      material_type: 'processed_segment',
+    });
+    expect(after_source).toEqual(before_source);
+    await expect(list_notes({}, { cwd })).resolves.toEqual(before_notes);
+    await expect(list_index_entries({ cwd })).resolves.toEqual(before_index);
+  });
+
+  it('does not fallback when no eligible structured material exists', async () => {
+    const cwd = await create_temp_dir();
+    const fixture = await write_markdown_fixture(
+      cwd,
+      'raw-fallback-answer.md',
+      `# Raw Fallback\n\nrawfallbackanswer only exists in raw material.\n`,
+    );
+    const ingest = await ingest_markdown_workflow({ cwd, file_path: fixture });
+    if (!ingest.ok) throw new Error(ingest.error.message);
+    let called = false;
+
+    const result = await answer_question_workflow({
+      cwd,
+      question: 'rawfallbackanswer',
+      fallback_to_unconfirmed: true,
+      answer: async () => {
+        called = true;
+        throw new Error('should not call');
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(called).toBe(false);
+    expect(result.data.unconfirmed_materials).toEqual([]);
+    expect(result.data.answer.conclusion).toBe('没有相关已确认知识。');
   });
 
   it('does not answer directly from matching Candidates', async () => {

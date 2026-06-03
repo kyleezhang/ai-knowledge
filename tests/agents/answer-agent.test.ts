@@ -15,6 +15,7 @@ import { create_test_note } from '../note-test-helpers.js';
 
 const agent_input: AnswerAgentInput = {
   question: 'What do we know about agent memory?',
+  unconfirmed_materials: [],
   approved_notes: [
     create_test_note({
       status: 'approved',
@@ -61,7 +62,8 @@ describe('answer agent', () => {
     const prompt = build_answer_user_prompt(agent_input);
 
     expect(prompt).toContain('## Approved Notes');
-    expect(prompt).toContain('Do not fallback to Source');
+    expect(prompt).toContain('## Unconfirmed Materials');
+    expect(prompt).toContain('Treat approved Notes as primary evidence');
   });
 
   it('loads answer prompt and returns schema-valid answer', async () => {
@@ -82,6 +84,39 @@ describe('answer agent', () => {
 
     expect(result.conclusion).toBe('Agent memory helps.');
     expect(llm_client.last_input?.system_prompt).toContain('Answer Agent');
+  });
+
+  it('passes unconfirmed materials separately and accepts labeled output', async () => {
+    const unconfirmed = {
+      confirmation_status: 'unconfirmed' as const,
+      material_type: 'draft_understanding' as const,
+      source_id: 'src_20260514_upload_markdown_test-source',
+      source_title: 'Test Source',
+      source_status: 'understanding_ready',
+      evidence_ref: 'source.json#draft_understanding',
+      excerpt: 'Draft fallback insight.',
+      limitations: ['Draft understanding has not been approved.'],
+    };
+    const llm_client = new FakeLlmClient({
+      conclusion: 'The fallback material suggests an unconfirmed direction.',
+      cited_notes: [],
+      unconfirmed_materials: [unconfirmed],
+      limitations: ['Uses unconfirmed material.'],
+    });
+
+    const result = await answer_agent({
+      llm_client,
+      agent_input: {
+        ...agent_input,
+        approved_notes: [],
+        unconfirmed_materials: [unconfirmed],
+      },
+    });
+
+    expect(llm_client.last_input?.user_prompt).toContain(
+      '## Unconfirmed Materials',
+    );
+    expect(result.unconfirmed_materials).toEqual([unconfirmed]);
   });
 
   it('retries once when the LLM output fails schema validation', async () => {

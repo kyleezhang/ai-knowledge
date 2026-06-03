@@ -9,8 +9,10 @@ import type { LlmClient } from '../agents/types.js';
 import type {
   HybridRetrievalResult,
   MetadataFilter,
+  UnconfirmedEvidence,
 } from '../domain/index-entry.js';
 import type { HybridRetrievedApprovedNote } from '../retrieval/retrieve-approved-notes.js';
+import { retrieve_unconfirmed_materials } from '../retrieval/retrieve-unconfirmed-materials.js';
 import type { StorageConfig } from '../storage/config.js';
 import {
   retrieve_approved_notes,
@@ -32,9 +34,14 @@ export type AnswerQuestionWorkflowInput = {
   metadata_filter?: MetadataFilter;
   include_retrieval_debug?: boolean;
   embedding_provider?: EmbeddingProvider;
+  fallback_to_unconfirmed?: boolean;
   answer?: (input: {
     llm_client: LlmClient;
-    agent_input: { question: string; approved_notes: Note[] };
+    agent_input: {
+      question: string;
+      approved_notes: Note[];
+      unconfirmed_materials?: UnconfirmedEvidence[];
+    };
   }) => Promise<GroundedAnswer>;
 };
 
@@ -43,6 +50,7 @@ export type AnswerQuestionWorkflowData = {
   answer: GroundedAnswer;
   matched_note_ids: string[];
   retrieval_results: HybridRetrievalResult[];
+  unconfirmed_materials: UnconfirmedEvidence[];
 };
 
 export async function answer_question_workflow(
@@ -68,13 +76,24 @@ export async function answer_question_workflow(
             cwd: input.cwd,
           });
 
-    if (matches.length === 0) {
+    const unconfirmed_materials =
+      matches.length === 0 && input.fallback_to_unconfirmed === true
+        ? await retrieve_unconfirmed_materials({
+            question: input.question,
+            enabled: true,
+            storage_config: input.storage_config,
+            cwd: input.cwd,
+          })
+        : [];
+
+    if (matches.length === 0 && unconfirmed_materials.length === 0) {
       return {
         ok: true,
         data: {
           question: input.question,
           matched_note_ids: [],
           retrieval_results: [],
+          unconfirmed_materials: [],
           answer: {
             conclusion: '没有相关已确认知识。',
             cited_notes: [],
@@ -93,6 +112,7 @@ export async function answer_question_workflow(
       agent_input: {
         question: input.question,
         approved_notes: matches.map((item) => item.note),
+        unconfirmed_materials,
       },
     });
 
@@ -106,6 +126,7 @@ export async function answer_question_workflow(
             (item): item is HybridRetrievedApprovedNote => 'retrieval' in item,
           )
           .map((item) => item.retrieval),
+        unconfirmed_materials,
         answer: grounded,
       },
     };

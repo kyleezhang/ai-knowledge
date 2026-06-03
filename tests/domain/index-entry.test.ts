@@ -3,7 +3,9 @@ import {
   assert_note_can_be_vector_indexed,
   parse_hybrid_retrieval_options,
   parse_hybrid_retrieval_result,
+  parse_answer_fallback_result,
   parse_index_entry,
+  parse_unconfirmed_evidence,
   parse_vector_index,
   validate_index_entry,
   validate_vector_index_for_note,
@@ -298,6 +300,70 @@ describe('IndexEntry domain', () => {
         debug: [],
       }),
     ).toThrow('hybrid retrieval result must have signals');
+  });
+
+  it('parses fully labeled unconfirmed evidence', () => {
+    expect(
+      parse_unconfirmed_evidence({
+        confirmation_status: 'unconfirmed',
+        material_type: 'processed_segment',
+        source_id: 'src_20260514_upload_markdown_test-source',
+        source_title: 'Test Source',
+        source_status: 'processed',
+        evidence_ref: 'processed/segments.json#seg_0001',
+        excerpt: 'Unconfirmed excerpt.',
+        limitations: ['This material has not become approved knowledge.'],
+      }),
+    ).toMatchObject({ confirmation_status: 'unconfirmed' });
+  });
+
+  it('rejects invalid unconfirmed evidence labels and empty fields', () => {
+    const base = {
+      confirmation_status: 'unconfirmed',
+      material_type: 'processed_segment',
+      source_id: 'src_20260514_upload_markdown_test-source',
+      source_title: 'Test Source',
+      source_status: 'processed',
+      evidence_ref: 'processed/segments.json#seg_0001',
+      excerpt: 'Unconfirmed excerpt.',
+      limitations: ['This material has not become approved knowledge.'],
+    };
+
+    expect(() =>
+      parse_unconfirmed_evidence({ ...base, confirmation_status: 'approved' }),
+    ).toThrow();
+    expect(() =>
+      parse_unconfirmed_evidence({ ...base, material_type: 'raw_artifact' }),
+    ).toThrow();
+    expect(() =>
+      parse_unconfirmed_evidence({ ...base, evidence_ref: '' }),
+    ).toThrow('unconfirmed evidence must have evidence_ref');
+    expect(() => parse_unconfirmed_evidence({ ...base, excerpt: '' })).toThrow(
+      'unconfirmed evidence must have excerpt',
+    );
+    expect(() =>
+      parse_unconfirmed_evidence({ ...base, limitations: [] }),
+    ).toThrow('unconfirmed evidence must have limitations');
+  });
+
+  it('parses fallback result and validates all evidence items', () => {
+    expect(
+      parse_answer_fallback_result({
+        enabled: true,
+        evidence: [
+          {
+            confirmation_status: 'unconfirmed',
+            material_type: 'draft_understanding',
+            source_id: 'src_20260514_upload_markdown_test-source',
+            source_title: 'Test Source',
+            source_status: 'understood',
+            evidence_ref: 'source.json#draft_understanding',
+            excerpt: 'Draft understanding excerpt.',
+            limitations: ['Draft understanding has not been approved.'],
+          },
+        ],
+      }),
+    ).toMatchObject({ enabled: true });
   });
 
   it('requires approved notes to have approved_at and passed quality checks', () => {
