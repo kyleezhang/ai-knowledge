@@ -1,9 +1,5 @@
-# Answer Grounding Specification
+## MODIFIED Requirements
 
-## Purpose
-
-This capability defines how the system answers user questions using approved knowledge first while preserving uncertainty about unapproved material.
-## Requirements
 ### Requirement: Answers Prefer Approved Notes
 The system SHALL prefer approved notes as the primary evidence source for answers. P0 answer workflow MUST use only approved Notes loaded through approved Index Entries. When P3 hybrid retrieval is explicitly enabled, answer workflow MUST still use hybrid results only to locate approved Notes and MUST ground answers in the loaded `note.json` records.
 
@@ -22,28 +18,6 @@ The system SHALL prefer approved notes as the primary evidence source for answer
 - **THEN** the answer workflow loads those approved Notes from `note.json`
 - **AND** grounds the answer in those Notes rather than retrieval metadata
 
-
-### Requirement: Unapproved Material Is Secondary Evidence
-The system SHALL NOT use raw sources, draft understanding, or discussion summaries as secondary evidence in P0 answer workflow.
-
-#### Scenario: Approved notes are insufficient
-- **WHEN** approved notes do not sufficiently answer the question
-- **THEN** the P0 system reports limitations
-- **AND** does not consult raw sources or discussion-stage material
-
-### Requirement: Answers Do Not Invent Unsupported Claims
-The system SHALL avoid fabricating conclusions when available knowledge is insufficient.
-
-#### Scenario: Retrieval has insufficient evidence
-- **WHEN** neither approved notes nor clearly marked secondary evidence support an answer
-- **THEN** the system states that the current knowledge base is insufficient
-- **AND** does not present unsupported claims as settled knowledge
-
-#### Scenario: Answer Agent receives approved notes
-- **WHEN** the Answer Agent is called in P0
-- **THEN** it receives approved Notes as evidence
-- **AND** it must not use model background knowledge as project knowledge
-
 ### Requirement: Retrieval Uses Main Index As Entry Point
 The system SHALL use the main index as the entry point for approved-note retrieval in P0 and P3 hybrid retrieval. P0 retrieval searches keyword and metadata index entries. When hybrid retrieval is explicitly enabled, retrieval MAY also use vector references reachable from approved Index Entries.
 
@@ -60,7 +34,6 @@ The system SHALL use the main index as the entry point for approved-note retriev
 - **WHEN** answer workflow runs in hybrid retrieval mode
 - **THEN** retrieval combines keyword, metadata, and available vector signals from approved Index Entries
 - **AND** still returns at most the requested top-k approved Notes to the Answer Agent
-
 
 ### Requirement: Answer Evidence Remains Traceable
 The system SHALL keep answer evidence traceable to approved Notes. When approved Notes contain processed segment evidence locators, answer traceability MUST remain rooted in those approved Notes and MUST NOT require answer workflow to load raw Sources, draft understanding, or discussion-stage material. Hybrid retrieval explanations MAY be returned for debugging, but MUST NOT replace approved Note evidence.
@@ -79,24 +52,3 @@ The system SHALL keep answer evidence traceable to approved Notes. When approved
 - **WHEN** answer workflow returns keyword, metadata, or vector score explanations
 - **THEN** those explanations are presented only as retrieval diagnostics
 - **AND** answer claims remain grounded in approved Note JSON
-
-
-### Requirement: Answer Agent Uses Grounded Prompt
-The system SHALL use `answer-grounded.md` when generating grounded answers from approved Notes.
-
-#### Scenario: Answer Agent is called
-- **WHEN** approved Note evidence is available for a question
-- **THEN** the workflow calls Answer Agent
-- **AND** the Agent uses `src/agents/prompts/answer-grounded.md`
-
-### Requirement: Answer CLI Supports JSON And Top-K
-The system SHALL expose approved-note answers through `ai-knowledge answer "<question>"` with `--top-k` and `--json` options.
-
-#### Scenario: User requests JSON answer
-- **WHEN** the user runs `ai-knowledge answer "<question>" --json`
-- **THEN** the CLI returns the answer workflow result as JSON
-
-#### Scenario: User requests top-k
-- **WHEN** the user runs `ai-knowledge answer "<question>" --top-k 5`
-- **THEN** the retrieval step uses 5 as the maximum number of approved Notes
-

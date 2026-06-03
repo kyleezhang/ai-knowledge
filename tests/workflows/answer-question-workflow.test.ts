@@ -49,6 +49,7 @@ describe('answer question workflow', () => {
     if (!result.ok) return;
     expect(called).toBe(false);
     expect(result.data.answer.conclusion).toBe('没有相关已确认知识。');
+    expect(result.data.retrieval_results).toEqual([]);
   });
 
   it('answers from matching approved notes', async () => {
@@ -210,6 +211,83 @@ describe('answer question workflow', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.matched_note_ids).toHaveLength(1);
+  });
+
+  it('answers in hybrid mode while passing only approved notes to the agent', async () => {
+    const cwd = await create_temp_dir();
+    const note = approved_note('note_20260514_hybrid-answer', 'Hybrid Answer');
+    await create_note({ note, markdown: render_note_markdown(note) }, { cwd });
+    await save_index_entry(
+      { ...build_index_entry(note), keywords: ['hybrid'], tags: ['answer'] },
+      { cwd },
+    );
+    let agent_received_chunk_text = false;
+
+    const result = await answer_question_workflow({
+      cwd,
+      question: 'hybrid answer',
+      retrieval_mode: 'hybrid',
+      include_retrieval_debug: true,
+      metadata_filter: { boost_tags: ['answer'] },
+      answer: async ({ agent_input }) => {
+        agent_received_chunk_text = agent_input.approved_notes.some((item) =>
+          JSON.stringify(item).includes('best chunk'),
+        );
+        return {
+          conclusion: 'Hybrid answer grounded in Note JSON.',
+          cited_notes: agent_input.approved_notes.map((item) => ({
+            note_id: item.id,
+            title: item.title,
+            relevant_points: item.conclusions,
+          })),
+          unconfirmed_materials: [],
+          limitations: [],
+        };
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(agent_received_chunk_text).toBe(false);
+    expect(result.data.matched_note_ids).toEqual([note.id]);
+    expect(result.data.retrieval_results).toHaveLength(1);
+    expect(
+      result.data.retrieval_results[0].signals.map((signal) => signal.type),
+    ).toEqual(['keyword', 'metadata']);
+  });
+
+  it('hybrid mode falls back to keyword matches when vector is unavailable', async () => {
+    const cwd = await create_temp_dir();
+    const note = approved_note(
+      'note_20260514_hybrid-fallback',
+      'Hybrid Fallback',
+    );
+    await create_note({ note, markdown: render_note_markdown(note) }, { cwd });
+    await save_index_entry(build_index_entry(note), { cwd });
+
+    const result = await answer_question_workflow({
+      cwd,
+      question: 'hybrid fallback',
+      retrieval_mode: 'hybrid',
+      include_retrieval_debug: true,
+      answer: async ({ agent_input }) => ({
+        conclusion: 'Fallback answer.',
+        cited_notes: agent_input.approved_notes.map((item) => ({
+          note_id: item.id,
+          title: item.title,
+          relevant_points: item.conclusions,
+        })),
+        unconfirmed_materials: [],
+        limitations: [],
+      }),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.matched_note_ids).toEqual([note.id]);
+    expect(result.data.retrieval_results[0].debug.join('\n')).toContain(
+      'no vector_ref',
+    );
   });
 
   it('surfaces answer agent failure', async () => {

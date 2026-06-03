@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   assert_note_can_be_vector_indexed,
+  parse_hybrid_retrieval_options,
+  parse_hybrid_retrieval_result,
   parse_index_entry,
   parse_vector_index,
   validate_index_entry,
@@ -212,6 +214,90 @@ describe('IndexEntry domain', () => {
         note,
       ),
     ).toThrow('vector index note_id must match note id');
+  });
+
+  it('parses hybrid retrieval options with metadata filters', () => {
+    expect(
+      parse_hybrid_retrieval_options({
+        top_k: 5,
+        metadata_filter: {
+          tags: ['agent'],
+          keywords: ['memory'],
+          related_note_ids: ['note_20260514_related'],
+          approved_at_from: '2026-05-01T00:00:00.000Z',
+          approved_at_to: '2026-05-31T23:59:59.000Z',
+          boost_keywords: ['workflow'],
+          boost_tags: ['p0'],
+        },
+        weights: { keyword: 0.4, metadata: 0.2, vector: 0.4 },
+        include_debug: true,
+      }),
+    ).toMatchObject({ top_k: 5, metadata_filter: { tags: ['agent'] } });
+  });
+
+  it('parses hybrid retrieval results with signal explanations', () => {
+    expect(
+      parse_hybrid_retrieval_result({
+        note_id: 'note_20260514_test-note',
+        final_score: 0.9,
+        signals: [
+          {
+            type: 'keyword',
+            score: 2,
+            normalized_score: 1,
+            explanation: 'matched title: test',
+          },
+          {
+            type: 'metadata',
+            score: 1,
+            normalized_score: 0.5,
+            explanation: 'matched tag: agent',
+          },
+        ],
+        debug: ['vector unavailable: no vector_ref'],
+      }),
+    ).toMatchObject({ note_id: 'note_20260514_test-note', final_score: 0.9 });
+  });
+
+  it('rejects invalid hybrid retrieval results', () => {
+    expect(() =>
+      parse_hybrid_retrieval_result({
+        note_id: '',
+        final_score: 0.9,
+        signals: [
+          {
+            type: 'keyword',
+            score: 1,
+            normalized_score: 1,
+            explanation: 'matched',
+          },
+        ],
+        debug: [],
+      }),
+    ).toThrow('hybrid retrieval result must have note_id');
+    expect(() =>
+      parse_hybrid_retrieval_result({
+        note_id: 'note_20260514_test-note',
+        final_score: -1,
+        signals: [
+          {
+            type: 'keyword',
+            score: 1,
+            normalized_score: 1,
+            explanation: 'matched',
+          },
+        ],
+        debug: [],
+      }),
+    ).toThrow();
+    expect(() =>
+      parse_hybrid_retrieval_result({
+        note_id: 'note_20260514_test-note',
+        final_score: 0,
+        signals: [],
+        debug: [],
+      }),
+    ).toThrow('hybrid retrieval result must have signals');
   });
 
   it('requires approved notes to have approved_at and passed quality checks', () => {

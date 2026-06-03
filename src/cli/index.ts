@@ -272,10 +272,14 @@ export function create_program(
     .command('answer')
     .argument('<question>')
     .option('--top-k <n>', 'Maximum approved Notes to retrieve')
+    .option('--hybrid', 'Use hybrid keyword metadata vector retrieval')
     .option('--json', 'Output JSON')
     .description('Answer a question from approved Notes.')
     .action(
-      async (question: string, options: { topK?: string; json?: boolean }) => {
+      async (
+        question: string,
+        options: { topK?: string; hybrid?: boolean; json?: boolean },
+      ) => {
         const top_k =
           options.topK === undefined ? undefined : Number(options.topK);
         const result = await answer_question_workflow({
@@ -283,6 +287,9 @@ export function create_program(
           top_k,
           cwd: input.cwd,
           answer: input.answer,
+          retrieval_mode: options.hybrid === true ? 'hybrid' : 'default',
+          include_retrieval_debug: options.json === true,
+          embedding_provider: input.embedding_provider,
         });
 
         if (options.json) {

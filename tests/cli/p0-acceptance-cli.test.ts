@@ -256,6 +256,34 @@ describe('P0 end-to-end acceptance CLI', () => {
       note_id,
     ]);
 
+    const hybrid_answer_harness = create_cli_harness(cwd, {
+      answer: async ({ agent_input }) => ({
+        conclusion: 'Hybrid retrieval still passes approved Notes.',
+        cited_notes: agent_input.approved_notes.map((note) => ({
+          note_id: note.id,
+          title: note.title,
+          relevant_points: note.conclusions,
+        })),
+        unconfirmed_materials: [],
+        limitations: [],
+      }),
+    });
+    await hybrid_answer_harness.run([
+      'answer',
+      acceptance_question,
+      '--hybrid',
+      '--json',
+    ]);
+    const hybrid_answer_json = JSON.parse(hybrid_answer_harness.stdout[0]) as {
+      ok: true;
+      data: {
+        matched_note_ids: string[];
+        retrieval_results: Array<{ note_id: string }>;
+      };
+    };
+    expect(hybrid_answer_json.data.matched_note_ids).toEqual([note_id]);
+    expect(hybrid_answer_json.data.retrieval_results[0].note_id).toBe(note_id);
+
     await expect(access(knowledge_dir({ cwd }))).resolves.toBeUndefined();
     await expect(
       access(source_json_path(source_id, { cwd })),

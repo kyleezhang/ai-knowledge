@@ -4,9 +4,18 @@ import {
   create_llm_client,
   type AnthropicMessagesApi,
 } from '../agents/llm-client.js';
+import type { EmbeddingProvider } from '../agents/embedding-provider.js';
 import type { LlmClient } from '../agents/types.js';
+import type {
+  HybridRetrievalResult,
+  MetadataFilter,
+} from '../domain/index-entry.js';
+import type { HybridRetrievedApprovedNote } from '../retrieval/retrieve-approved-notes.js';
 import type { StorageConfig } from '../storage/config.js';
-import { retrieve_approved_notes } from '../retrieval/retrieve-approved-notes.js';
+import {
+  retrieve_approved_notes,
+  retrieve_hybrid_approved_notes,
+} from '../retrieval/retrieve-approved-notes.js';
 import type { Note } from '../domain/note.js';
 import type { WorkflowResult } from './types.js';
 
@@ -19,6 +28,10 @@ export type AnswerQuestionWorkflowInput = {
   cwd?: string;
   llm_client?: LlmClient;
   messages_api?: AnthropicMessagesApi;
+  retrieval_mode?: 'default' | 'hybrid';
+  metadata_filter?: MetadataFilter;
+  include_retrieval_debug?: boolean;
+  embedding_provider?: EmbeddingProvider;
   answer?: (input: {
     llm_client: LlmClient;
     agent_input: { question: string; approved_notes: Note[] };
@@ -29,6 +42,7 @@ export type AnswerQuestionWorkflowData = {
   question: string;
   answer: GroundedAnswer;
   matched_note_ids: string[];
+  retrieval_results: HybridRetrievalResult[];
 };
 
 export async function answer_question_workflow(
@@ -36,12 +50,23 @@ export async function answer_question_workflow(
 ): Promise<WorkflowResult<AnswerQuestionWorkflowData>> {
   try {
     const top_k = input.top_k ?? default_top_k;
-    const matches = await retrieve_approved_notes({
-      question: input.question,
-      top_k,
-      storage_config: input.storage_config,
-      cwd: input.cwd,
-    });
+    const matches =
+      input.retrieval_mode === 'hybrid'
+        ? await retrieve_hybrid_approved_notes({
+            question: input.question,
+            top_k,
+            storage_config: input.storage_config,
+            cwd: input.cwd,
+            metadata_filter: input.metadata_filter,
+            include_debug: input.include_retrieval_debug,
+            embedding_provider: input.embedding_provider,
+          })
+        : await retrieve_approved_notes({
+            question: input.question,
+            top_k,
+            storage_config: input.storage_config,
+            cwd: input.cwd,
+          });
 
     if (matches.length === 0) {
       return {
@@ -49,6 +74,7 @@ export async function answer_question_workflow(
         data: {
           question: input.question,
           matched_note_ids: [],
+          retrieval_results: [],
           answer: {
             conclusion: '没有相关已确认知识。',
             cited_notes: [],
@@ -75,6 +101,11 @@ export async function answer_question_workflow(
       data: {
         question: input.question,
         matched_note_ids: matches.map((item) => item.note.id),
+        retrieval_results: matches
+          .filter(
+            (item): item is HybridRetrievedApprovedNote => 'retrieval' in item,
+          )
+          .map((item) => item.retrieval),
         answer: grounded,
       },
     };

@@ -28,7 +28,7 @@ The system SHALL create main index entries only for notes with status `approved`
 
 
 ### Requirement: Index Entry Is Retrieval Pointer
-The system SHALL treat an index entry as retrieval metadata, not knowledge truth. Answer workflows MUST use index entries only to locate approved `note.json` records. When an index entry includes `vector_ref`, the vector reference MUST also be treated only as retrieval metadata for locating approved Notes.
+The system SHALL treat an index entry as retrieval metadata, not knowledge truth. Answer workflows MUST use index entries only to locate approved `note.json` records. When an index entry includes `vector_ref`, the vector reference MUST also be treated only as retrieval metadata for locating approved Notes. Hybrid retrieval MAY use Index Entry fields for filtering and scoring, but MUST NOT treat those fields as formal answer evidence.
 
 #### Scenario: Index entry is read
 - **WHEN** the answer workflow retrieves an index entry
@@ -45,9 +45,14 @@ The system SHALL treat an index entry as retrieval metadata, not knowledge truth
 - **THEN** it uses vector metadata only to locate candidate approved Notes
 - **AND** does not treat embedding text or vector metadata as knowledge truth
 
+#### Scenario: Hybrid retrieval scores index metadata
+- **WHEN** hybrid retrieval uses `title`, `summary`, `keywords`, `tags`, `approved_at`, or `related_note_ids` from an Index Entry
+- **THEN** those fields affect candidate filtering or ranking only
+- **AND** the answer workflow still loads approved `note.json` for evidence
+
 
 ### Requirement: Index Entry References Note
-The system SHALL include enough metadata in each index entry to trace back to the note. P0 index entries MUST include `note_id`, `title`, `summary`, `keywords`, `tags`, `status = approved`, `approved_at`, `related_note_ids`, and `vector_ref = null`. In P3, successful vector indexing MAY set `vector_ref` to a storage-helper-resolved vector index reference for the same approved Note.
+The system SHALL include enough metadata in each index entry to trace back to the note. P0 index entries MUST include `note_id`, `title`, `summary`, `keywords`, `tags`, `status = approved`, `approved_at`, `related_note_ids`, and `vector_ref = null`. In P3, successful vector indexing MAY set `vector_ref` to a storage-helper-resolved vector index reference for the same approved Note. Hybrid retrieval MAY use these fields for filtering, boosting, and traceable ranking explanations.
 
 #### Scenario: Index entry is created
 - **WHEN** a note is indexed
@@ -62,6 +67,11 @@ The system SHALL include enough metadata in each index entry to trace back to th
 - **WHEN** vector indexing succeeds for an approved Note
 - **THEN** the main Index Entry may include a non-null `vector_ref`
 - **AND** `vector_ref` points to vector retrieval metadata for the same `note_id`
+
+#### Scenario: Hybrid retrieval explains metadata match
+- **WHEN** an Index Entry matches a metadata filter or boost
+- **THEN** hybrid retrieval can include the matched metadata field in its explanation
+- **AND** the Index Entry remains a retrieval pointer only
 
 
 ### Requirement: Reindexing Does Not Mutate Notes

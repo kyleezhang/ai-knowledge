@@ -24,7 +24,7 @@ The system SHALL create vector index entries only from approved `note.json` cont
 - **AND** markdown formatting changes do not by themselves define formal knowledge changes
 
 ### Requirement: Vector Index Entry Is Retrieval Metadata
-The system SHALL treat vector index entries as retrieval metadata, not knowledge truth. Answer workflows using vector retrieval MUST use vector hits only to locate approved `note.json` records.
+The system SHALL treat vector index entries as retrieval metadata, not knowledge truth. Answer workflows using vector retrieval MUST use vector hits only to locate approved `note.json` records. Hybrid retrieval MAY use vector similarity as one ranking signal, but MUST NOT pass vector chunk text as answer evidence.
 
 #### Scenario: Vector hit is returned
 - **WHEN** vector retrieval returns a chunk hit
@@ -35,6 +35,12 @@ The system SHALL treat vector index entries as retrieval metadata, not knowledge
 - **WHEN** a vector hit points to a missing or unloadable Note
 - **THEN** the answer workflow skips that hit
 - **AND** does not answer from vector metadata alone
+
+#### Scenario: Vector hit contributes to hybrid score
+- **WHEN** hybrid retrieval uses vector similarity for a candidate
+- **THEN** the vector hit contributes only to retrieval ranking
+- **AND** the answer workflow still grounds output in approved Note JSON
+
 
 ### Requirement: Vector Index Records Embedding Contract
 The system SHALL persist enough metadata for each vector index to validate embedding compatibility. A vector index MUST include `note_id`, `index_id`, `embedding_model`, `embedding_dimensions`, `chunker_version`, `created_at`, and chunk records containing `chunk_id`, `source_field`, `content_hash`, `text`, and `embedding`.
@@ -89,7 +95,7 @@ The system SHALL fail vector index construction explicitly when required vector 
 - **AND** no `vector_ref` is updated to point at the invalid result
 
 ### Requirement: Archived And Superseded Notes Are Removed From Vector Retrieval
-The system SHALL ensure archived and superseded Notes do not appear in main vector retrieval results. When a Note is archived or superseded, any corresponding vector index MUST be removed or made unavailable to main retrieval.
+The system SHALL ensure archived and superseded Notes do not appear in main vector retrieval results. When a Note is archived or superseded, any corresponding vector index MUST be removed or made unavailable to main retrieval. Hybrid retrieval MUST also exclude archived and superseded Notes from vector-derived candidates.
 
 #### Scenario: Approved note with vector index is archived
 - **WHEN** an approved Note with a vector index is archived
@@ -105,3 +111,9 @@ The system SHALL ensure archived and superseded Notes do not appear in main vect
 - **WHEN** supersede workflow creates a new draft Note version
 - **THEN** no vector index is created for the draft Note
 - **AND** the new Note must be approved before vector indexing can succeed
+
+#### Scenario: Hybrid retrieval sees stale vector data
+- **WHEN** hybrid retrieval encounters vector data for an archived or superseded Note
+- **THEN** it excludes that vector hit from main results
+- **AND** does not use it to rank or answer from the stale Note
+

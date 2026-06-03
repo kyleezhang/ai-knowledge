@@ -33,6 +33,43 @@ export const VectorIndexSchema = z.object({
   chunks: z.array(VectorIndexChunkSchema),
 });
 
+export const HybridRetrievalSignalSchema = z.object({
+  type: z.enum(['keyword', 'metadata', 'vector']),
+  score: z.number().min(0),
+  normalized_score: z.number().min(0).max(1),
+  explanation: z.string(),
+});
+
+export const MetadataFilterSchema = z.object({
+  tags: z.array(z.string()).optional(),
+  keywords: z.array(z.string()).optional(),
+  related_note_ids: z.array(z.string()).optional(),
+  approved_at_from: z.string().optional(),
+  approved_at_to: z.string().optional(),
+  boost_keywords: z.array(z.string()).optional(),
+  boost_tags: z.array(z.string()).optional(),
+});
+
+export const HybridRetrievalOptionsSchema = z.object({
+  top_k: z.number().int().positive(),
+  metadata_filter: MetadataFilterSchema.optional(),
+  weights: z
+    .object({
+      keyword: z.number().min(0),
+      metadata: z.number().min(0),
+      vector: z.number().min(0),
+    })
+    .optional(),
+  include_debug: z.boolean().optional(),
+});
+
+export const HybridRetrievalResultSchema = z.object({
+  note_id: z.string(),
+  final_score: z.number().min(0),
+  signals: z.array(HybridRetrievalSignalSchema),
+  debug: z.array(z.string()),
+});
+
 export const IndexEntrySchema = z.object({
   note_id: z.string(),
   title: z.string(),
@@ -49,7 +86,49 @@ export type VectorIndexRef = z.infer<typeof VectorIndexRefSchema>;
 export type EmbeddingMetadata = z.infer<typeof EmbeddingMetadataSchema>;
 export type VectorIndexChunk = z.infer<typeof VectorIndexChunkSchema>;
 export type VectorIndex = z.infer<typeof VectorIndexSchema>;
+export type HybridRetrievalSignal = z.infer<typeof HybridRetrievalSignalSchema>;
+export type MetadataFilter = z.infer<typeof MetadataFilterSchema>;
+export type HybridRetrievalOptions = z.infer<
+  typeof HybridRetrievalOptionsSchema
+>;
+export type HybridRetrievalResult = z.infer<typeof HybridRetrievalResultSchema>;
 export type IndexEntry = z.infer<typeof IndexEntrySchema>;
+
+export function validate_hybrid_retrieval_result(
+  result: HybridRetrievalResult,
+): void {
+  if (result.note_id.trim().length === 0) {
+    throw new Error('hybrid retrieval result must have note_id');
+  }
+  if (!Number.isFinite(result.final_score) || result.final_score < 0) {
+    throw new Error('hybrid retrieval result final_score must be non-negative');
+  }
+  if (result.signals.length === 0) {
+    throw new Error('hybrid retrieval result must have signals');
+  }
+  for (const signal of result.signals) {
+    if (!Number.isFinite(signal.score) || signal.score < 0) {
+      throw new Error('hybrid retrieval signal score must be non-negative');
+    }
+    if (signal.explanation.trim().length === 0) {
+      throw new Error('hybrid retrieval signal must have explanation');
+    }
+  }
+}
+
+export function parse_hybrid_retrieval_options(
+  value: unknown,
+): HybridRetrievalOptions {
+  return HybridRetrievalOptionsSchema.parse(value);
+}
+
+export function parse_hybrid_retrieval_result(
+  value: unknown,
+): HybridRetrievalResult {
+  const result = HybridRetrievalResultSchema.parse(value);
+  validate_hybrid_retrieval_result(result);
+  return result;
+}
 
 export function validate_vector_index(vector_index: VectorIndex): void {
   if (vector_index.index_id.trim().length === 0) {
