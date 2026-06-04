@@ -4,7 +4,7 @@
 
 本文档基于 `specs/prd.md`、`specs/workflow.md`、`specs/schema.md` 与 `specs/implementation.md`，记录从 P0/P1 到最终预期能力的 issue 拆分，并作为当前实现状态的轻量路线图。
 
-### 1.1 当前实现快照（2026-06-01）
+### 1.1 当前实现快照（2026-06-03）
 
 当前应用已经实现以下用户可见能力：
 
@@ -14,19 +14,23 @@
 - Draft understanding：基于 processed artifacts 调用 LLM Agent 生成结构化初步理解。
 - 讨论闭环：`source discuss` 交互式 REPL、`discussion.jsonl` 原始消息、`discussion_summary` 结构化摘要、收敛检查与 `source approve` 门槛。
 - Note 生命周期：从 approved Source 生成 `note.json` / `note.md`，支持 render、lint、approve、index、archive、list、show。
-- 已确认知识问答：`answer` 只检索 approved Index Entry 并加载 approved Notes 作答；无命中时明确提示没有相关已确认知识。
+- 已确认知识问答：`answer` 默认只检索 approved Index Entry 并加载 approved Notes 作答；无命中时明确提示没有相关已确认知识。
+- 混合检索：支持显式 `answer --hybrid`，组合 keyword / metadata / vector signals，并保留 retrieval explanation；无可用 vector 时会降级并记录原因。
+- Answer fallback：支持显式 `answer --fallback-unconfirmed`，在无 approved Note 命中时读取结构化未确认材料，并将 `unconfirmed_materials` 与 approved evidence 分开标注。
 - Candidate 候选池：GitHub Trending / Hacker News 采集、去重、过滤、规则评分、推荐、选择并转换为 Source。
 - 相关笔记基础能力：从 approved Notes 中发现候选关系，`note compose --related-note` 只允许写入显式确认的 related note ids。
-- Source / Note 归档：支持 `source archive` 与 `note archive`；归档保留历史文件，archived Note 会退出主检索。
-- 验收与测试：P0 Markdown、P1 PDF/URL、Candidate pool、归档工作流均有测试覆盖；真实 LLM smoke 依赖环境变量。
+- Source / Note 归档与版本治理：支持 `source archive`、`note archive`、Note supersede；archived / superseded Note 会退出主检索并清理对应索引。
+- 向量索引基础：已定义 vector index / chunk / `vector_ref` 契约、storage helper、workflow 与 `note index --vector` 入口；真实 embedding provider 配置仍需后续接入。
+- 本地异步任务：支持 filesystem-backed `task enqueue/run/retry/list/show`、attempt 记录、retry policy 与受控 workflow runner。
+- 验收与测试：P0 Markdown、P1 PDF/URL、Candidate pool、归档/版本化、混合检索、fallback、本地任务工作流均有测试覆盖；真实 LLM smoke 依赖环境变量。
 
 ### 1.2 当前仍未完成或仅部分完成的能力
 
 - URL 导入的 raw 快照只保存 `raw/fetched.html` 和 `source.url`，尚未按早期 issue 条目保存独立 `raw/original.url` 或 redirect 后最终 URL。
 - 相关笔记尚未参与 answer 的上下文扩展排序；当前主要用于 compose 时写入 `Note.related_note_ids` 和 index/render 展示。
-- 更完整的 Index Entry 生命周期清理仍是待办；Source / Note archive 与 Note supersede 已完成。
-- 向量索引、混合检索、answer fallback 到未确认材料仍是待办。
-- 本地异步 job/retry、定时自动采集与自动推进仍是待办。
+- 向量索引已具备契约、storage、workflow 和测试，但真实 embedding provider 配置 / API key 环境变量接入仍未完成。
+- 本地异步任务已具备本地 task runtime 与手动 `task run`，但尚未支持定时自动采集、自动调度或后台 daemon。
+- 定时自动采集与自动推进仍是待办。
 - Web UI 不在当前范围内。
 
 ### 1.3 状态标记
@@ -1035,6 +1039,7 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 ### Issue 31: 向量索引契约与 embedding 生成
 
+- **Status**: Partial
 - **Type**: AFK
 - **Blocked by**: Issue 10
 - **User stories covered**:
@@ -1043,18 +1048,18 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 #### What to build
 
-定义并实现 Note embedding 生成、向量文件或向量存储引用，以及 `IndexEntry.vector_ref` 的更新策略。该 issue 只负责生成与存储向量，不改变 answer 排序策略。
+定义并实现 Note embedding 生成、向量文件或向量存储引用，以及 `IndexEntry.vector_ref` 的更新策略。当前已完成本地 vector index 契约、chunk/schema、storage、workflow、CLI 显式入口与 mock provider 测试；真实 embedding provider 配置仍未接入。
 
 #### Acceptance criteria
 
-- [ ] 定义 embedding provider 配置，API key 只能来自环境变量
-- [ ] 定义 vector artifact 或 vector store 引用格式
-- [ ] `note index` 可生成 embedding
-- [ ] `IndexEntry.vector_ref` 指向可读取的向量引用
-- [ ] embedding 输入只来自 approved Note 主真相字段
-- [ ] 不为 draft / archived / superseded Note 生成主向量索引
-- [ ] embedding 失败时不把 Note 标记为 approved 失败
-- [ ] 测试可 mock embedding provider
+- [ ] 定义真实 embedding provider 配置，API key 只能来自环境变量
+- [x] 定义 vector artifact / vector ref 格式
+- [x] `note index --vector` 具备显式向量索引构建入口
+- [x] `IndexEntry.vector_ref` 指向可读取的向量引用
+- [x] embedding 输入只来自 approved Note 主真相字段
+- [x] 不为 draft / archived / superseded Note 生成主向量索引
+- [x] embedding 失败时不把 Note 标记为 approved 失败，也不写入 invalid `vector_ref`
+- [x] 测试可 mock embedding provider
 
 #### Blocked by
 
@@ -1064,6 +1069,7 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 ### Issue 32: 关键词 / metadata / 向量混合检索
 
+- **Status**: Done
 - **Type**: AFK
 - **Blocked by**: Issue 31, Issue 30
 - **User stories covered**:
@@ -1072,18 +1078,18 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 #### What to build
 
-实现 hybrid retrieval，将关键词、metadata 和 vector similarity 合并排序，并保持只检索当前有效的 approved Note。
+实现 hybrid retrieval，将关键词、metadata 和 vector similarity 合并排序，并保持只检索当前有效的 approved Note。当前通过显式 `answer --hybrid` 启用；默认 answer 行为仍保持 P0 approved-note keyword / metadata 检索。
 
 #### Acceptance criteria
 
-- [ ] retrieval 支持 keyword score
-- [ ] retrieval 支持 metadata/tag score
-- [ ] retrieval 支持 vector similarity score
-- [ ] 定义可解释的合并排序策略
-- [ ] top-k 返回包含分数构成或 debug 信息
-- [ ] 只返回当前有效 approved Notes
-- [ ] 无 vector_ref 时可降级到 keyword/metadata，但必须显式记录降级
-- [ ] 覆盖 hybrid retrieval 测试 fixture
+- [x] retrieval 支持 keyword score
+- [x] retrieval 支持 metadata/tag filter 与 boost
+- [x] retrieval 支持 vector similarity score（需要可用 embedding provider / vector index）
+- [x] 定义可解释的合并排序策略
+- [x] top-k 返回包含分数构成或 debug 信息
+- [x] 只返回当前有效 approved Notes
+- [x] 无 vector_ref 或 query embedding 不可用时可降级到 keyword/metadata，并显式记录降级原因
+- [x] 覆盖 hybrid retrieval 测试 fixture
 
 #### Blocked by
 
@@ -1094,6 +1100,7 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 ### Issue 33: Answer fallback 到未确认材料并显式标注
 
+- **Status**: Done
 - **Type**: AFK
 - **Blocked by**: Issue 11, Issue 32
 - **User stories covered**:
@@ -1102,19 +1109,19 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 #### What to build
 
-扩展 answer workflow，在 approved Notes 不足时按优先级补充相关 `discussion_summary`、processed artifacts 或 raw Source 摘要，并在回答中显式标注未确认属性。
+扩展 answer workflow，在无 approved Note 命中且用户显式启用 fallback 时，补充结构化未确认材料（processed artifacts、`draft_understanding`、discussion summary），并在回答和 JSON 输出中显式标注。raw artifacts 不作为 fallback answer evidence。
 
 #### Acceptance criteria
 
-- [ ] answer 优先使用 approved Notes
-- [ ] approved Note 不足时可检索相关 Source / discussion_summary
-- [ ] processed/raw Source 只能作为 unconfirmed materials
-- [ ] 输出结构包含 `unconfirmed_materials`
-- [ ] Answer Agent prompt 明确区分 confirmed 与 unconfirmed
-- [ ] 当 approved Note 与 Source 冲突时默认以 approved Note 为准
-- [ ] 无 approved Note 但有相关 Source 时明确说明“存在相关材料，但尚未形成已确认知识”
-- [ ] 不把未确认材料写入主 index
-- [ ] 覆盖 fallback 和冲突处理测试
+- [x] answer 默认优先且仅使用 approved Notes
+- [x] 无 approved Note 命中且显式启用 fallback 时可检索相关 Source structured material / discussion_summary
+- [x] processed Source / draft_understanding / discussion_summary 只能作为 `unconfirmed_materials`
+- [x] raw artifacts 不作为 fallback answer evidence
+- [x] 输出结构包含 `unconfirmed_materials`
+- [x] Answer Agent prompt 明确区分 confirmed 与 unconfirmed
+- [x] 无 approved Note 但有相关 Source 时明确说明存在未确认材料
+- [x] 不把未确认材料写入主 index，不创建 Note，不改变 Source / Note 状态
+- [x] 覆盖 fallback、标注完整性和状态不变测试
 
 #### Blocked by
 
@@ -1125,27 +1132,29 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 ### Issue 34: 本地异步任务与重试模型
 
+- **Status**: Done
 - **Type**: AFK
 - **Blocked by**: Issue 12
 - **User stories covered**:
-  - 长耗时处理可以后台执行并被查询状态
-  - 失败任务可以明确重试，而不是依赖用户手动猜测下一步
+  - 长耗时处理可以被排队、手动运行并查询状态
+  - 失败任务可以明确重试或明确标记为不可重试
 
 #### What to build
 
-实现本地 job/task 模型，用于封装预处理、理解生成、Markdown 成稿、索引更新等可异步步骤。P0/P1 命令仍可保留同步模式，但应具备异步执行基础。
+实现本地 filesystem-backed task 模型，用于封装预处理、理解生成、索引更新等可异步步骤。P0/P1 命令仍保留同步模式；异步任务首版通过 `ai-knowledge task run` 手动驱动，不包含后台 daemon 或自动调度。
 
 #### Acceptance criteria
 
-- [ ] 定义 job schema 与状态：`queued | running | succeeded | failed | canceled`
-- [ ] job 记录 target object、operation、created_at、updated_at、last_error
-- [ ] 支持 `job list`
-- [ ] 支持 `job show <job_id>`
-- [ ] 支持 `job retry <job_id>`
-- [ ] process / understand / render / index 可作为 job operation
-- [ ] job 失败不破坏 Source / Note 主真相边界
-- [ ] 支持 `--json`
-- [ ] 覆盖 job storage 和 retry 测试
+- [x] 定义 `LocalTask` schema 与状态：`pending | running | succeeded | retryable_failed | failed | cancelled`
+- [x] task 记录 target payload、created_at、updated_at、attempts、last_error / result_ref
+- [x] 支持 `task list`
+- [x] 支持 `task show <task_id>`
+- [x] 支持 `task retry <task_id>`，且只允许 retryable_failed task
+- [x] `source.process` / `source.understand` / `note.index` / `note.vector_index` 可作为 task type
+- [x] task runner 只调用现有 workflows，不直接修改 Source / Note / Index business state
+- [x] task 失败不破坏 Source / Note 主真相边界
+- [x] 支持 `--json`
+- [x] 覆盖 task domain、storage、runner、workflow 和 CLI 测试
 
 #### Blocked by
 
@@ -1163,7 +1172,7 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 #### What to build
 
-实现定时采集和可配置自动推进策略。自动化只能覆盖采集、候选评分和非交互预处理等环节，不能绕过 Candidate 选择、讨论确认或 Note approval 门槛。
+实现定时采集和可配置自动推进策略。自动化只能覆盖采集、候选评分和非交互预处理等环节，不能绕过 Candidate 选择、讨论确认或 Note approval 门槛。当前可复用 Issue 34 的本地 task runtime，但尚未实现 scheduler / daemon。
 
 #### Acceptance criteria
 
@@ -1174,7 +1183,7 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 - [ ] 不自动把 Candidate 转 Source
 - [ ] 不自动 approve Source
 - [ ] 不自动 approve Note
-- [ ] 采集任务失败可在 job 中查看
+- [ ] 采集任务失败可在 task 中查看
 - [ ] 覆盖 scheduler 和 safety gate 测试
 
 #### Blocked by
@@ -1194,7 +1203,7 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 #### What to build
 
-建立覆盖最终预期能力的端到端验收套件，包含主动导入、自动采集、候选选择、讨论确认、版本治理、混合检索和 fallback 问答。
+建立覆盖最终预期能力的端到端验收套件，包含主动导入、自动采集、候选选择、讨论确认、版本治理、混合检索和 fallback 问答。当前主要缺口是定时自动采集 / 自动推进相关验收。
 
 #### Acceptance criteria
 
@@ -1204,10 +1213,10 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 - [ ] 覆盖 discussion convergence checker
 - [ ] 覆盖 Note archive 与 supersede
 - [ ] 覆盖 related notes 确认
-- [ ] 覆盖 hybrid retrieval
-- [ ] 覆盖 answer fallback 到 unconfirmed materials
-- [ ] 验收中确认未确认材料不会进入主知识层
-- [ ] 验收中确认 archived / superseded Note 不进入当前主检索
+- [x] 覆盖 hybrid retrieval
+- [x] 覆盖 answer fallback 到 unconfirmed materials
+- [x] 验收中确认未确认材料不会进入主知识层
+- [x] 验收中确认 archived / superseded Note 不进入当前主检索
 
 #### Blocked by
 
@@ -1252,7 +1261,7 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 17 depends on 13, 14, 15, 16
 ```
 
-### P2+ / Final Expected Capability（18-27 mostly done; 28+ backlog）
+### P2+ / Final Expected Capability（18-34 mostly done; 35+ backlog）
 
 ```text
 18 depends on 1
@@ -1271,13 +1280,13 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 29 depends on 10, 26
 30 depends on 28, 29
 
-31 depends on 10
-32 depends on 31, 30
-33 depends on 11, 32
+31 depends on 10 (Partial: real embedding provider config remains)
+32 depends on 31, 30 (Done)
+33 depends on 11, 32 (Done)
 
-34 depends on 12
-35 depends on 23, 34
-36 depends on 25, 27, 30, 33, 35
+34 depends on 12 (Done: local task runtime, manual run/retry)
+35 depends on 23, 34 (Backlog: scheduler / auto-advance)
+36 depends on 25, 27, 30, 33, 35 (Partial: hybrid/fallback covered; scheduler still blocks final suite)
 ```
 
 ## 4. Notes
@@ -1292,3 +1301,5 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 - 向量检索只增强 retrieval，不改变 `note.json` 作为正式知识主真相的边界。
 - Answer fallback 可以引用未确认材料，但必须显式标注，且不得把未确认材料写入主 index。
 - HITL issue 包括交互式讨论、候选选择、相关笔记确认、版本化判断和端到端验收。
+
+- Vector indexing / hybrid retrieval / answer fallback / local task runtime 已通过 archived OpenSpec changes 落地；真实 embedding provider 配置与定时自动调度仍是后续工作.
