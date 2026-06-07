@@ -114,4 +114,105 @@ Body.
     expect(retry.exit_code).toBe(1);
     expect(retry.stderr.join('\n')).toContain('Task is not retryable');
   });
+
+  it('runs task daemon with bounded human output', async () => {
+    const cwd = await create_temp_dir();
+    const fixture = await write_markdown_fixture(
+      cwd,
+      'task-daemon-cli.md',
+      `# Task Daemon CLI
+
+Body.
+`,
+    );
+    const ingest = harness(cwd);
+    await ingest.run(['source', 'ingest', 'markdown', fixture, '--json']);
+    const source_id = (
+      JSON.parse(ingest.stdout[0]) as { ok: true; data: { source_id: string } }
+    ).data.source_id;
+    const enqueue = harness(cwd);
+    await enqueue.run([
+      'task',
+      'enqueue',
+      'source.process',
+      source_id,
+      '--json',
+    ]);
+
+    const daemon = harness(cwd);
+    await daemon.run([
+      'task',
+      'daemon',
+      '--max-runs',
+      '1',
+      '--idle-exit-after',
+      '1',
+      '--poll-interval-ms',
+      '0',
+    ]);
+
+    expect(daemon.exit_code).toBeUndefined();
+    expect(daemon.stdout.join('\n')).toContain(
+      'Task daemon exited: max_runs_reached',
+    );
+    expect(daemon.stdout.join('\n')).toContain(
+      'source.process succeeded attempts=1',
+    );
+  });
+
+  it('prints task daemon JSON output for an empty queue', async () => {
+    const cwd = await create_temp_dir();
+    const daemon = harness(cwd);
+    await daemon.run([
+      'task',
+      'daemon',
+      '--max-runs',
+      '1',
+      '--idle-exit-after',
+      '1',
+      '--poll-interval-ms',
+      '0',
+      '--json',
+    ]);
+
+    expect(JSON.parse(daemon.stdout[0])).toMatchObject({
+      ok: true,
+      data: {
+        summary: {
+          exit_reason: 'idle_exit',
+          runs: [],
+          idle_cycles: 1,
+        },
+      },
+    });
+  });
+
+  it('prints failed task result from daemon', async () => {
+    const cwd = await create_temp_dir();
+    const enqueue = harness(cwd);
+    await enqueue.run([
+      'task',
+      'enqueue',
+      'source.process',
+      'src_20260514_upload_markdown_missing',
+      '--json',
+    ]);
+
+    const daemon = harness(cwd);
+    await daemon.run([
+      'task',
+      'daemon',
+      '--max-runs',
+      '1',
+      '--idle-exit-after',
+      '1',
+      '--poll-interval-ms',
+      '0',
+    ]);
+
+    expect(daemon.exit_code).toBeUndefined();
+    expect(daemon.stdout.join('\n')).toContain(
+      'source.process failed attempts=1',
+    );
+  });
 });

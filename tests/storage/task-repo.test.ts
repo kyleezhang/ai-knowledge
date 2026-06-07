@@ -1,11 +1,17 @@
 import { writeFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import {
+  claim_task_lease,
+  classify_task_error,
+  fail_task_attempt,
   parse_local_task,
+  start_task_attempt,
   type LocalTask,
 } from '../../src/domain/local-task.js';
 import {
+  claim_task,
   create_task,
+  find_next_claimable_task,
   get_task,
   list_tasks,
   save_task,
@@ -81,5 +87,126 @@ describe('task repo', () => {
       'utf8',
     );
     await expect(get_task(created.task_id, { cwd })).rejects.toBeDefined();
+  });
+
+  it('claims a daemon eligible task and persists a lease', async () => {
+    const cwd = await create_temp_dir();
+    const created = await create_task(task(), { cwd });
+
+    const claimed = await claim_task(
+      {
+        task_id: created.task_id,
+        owner_id: 'daemon-a',
+        now: '2026-06-03T00:01:00.000Z',
+        lease_timeout_ms: 30_000,
+      },
+      { cwd },
+    );
+
+    expect(claimed?.lease).toMatchObject({ owner_id: 'daemon-a' });
+    await expect(get_task(created.task_id, { cwd })).resolves.toMatchObject({
+      lease: expect.objectContaining({ owner_id: 'daemon-a' }),
+    });
+  });
+
+  it('prevents duplicate claims while a lease is active', async () => {
+    const cwd = await create_temp_dir();
+    const created = await create_task(task(), { cwd });
+
+    const first = await claim_task(
+      {
+        task_id: created.task_id,
+        owner_id: 'daemon-a',
+        now: '2026-06-03T00:01:00.000Z',
+        lease_timeout_ms: 30_000,
+      },
+      { cwd },
+    );
+    const second = await claim_task(
+      {
+        task_id: created.task_id,
+        owner_id: 'daemon-b',
+        now: '2026-06-03T00:01:10.000Z',
+        lease_timeout_ms: 30_000,
+      },
+      { cwd },
+    );
+
+    expect(first).not.toBeNull();
+    expect(second).toBeNull();
+  });
+
+  it('allows stale leases to be reclaimed', async () => {
+    const cwd = await create_temp_dir();
+    const leased = claim_task_lease({
+      task: task(),
+      owner_id: 'daemon-a',
+      now: '2026-06-03T00:01:00.000Z',
+      lease_timeout_ms: 30_000,
+    });
+    await create_task(leased, { cwd });
+
+    const claimed = await claim_task(
+      {
+        task_id: leased.task_id,
+        owner_id: 'daemon-b',
+        now: '2026-06-03T00:01:30.000Z',
+        lease_timeout_ms: 30_000,
+      },
+      { cwd },
+    );
+
+    expect(claimed?.lease).toMatchObject({ owner_id: 'daemon-b' });
+  });
+
+  it('finds the next claimable task and skips not-yet-due retries', async () => {
+    const cwd = await create_temp_dir();
+    const retryable = fail_task_attempt({
+      task: start_task_attempt(
+        task({ retry_policy: { max_attempts: 3, retry_delay_ms: 60_000 } }),
+        '2026-06-03T00:01:00.000Z',
+      ),
+      now: '2026-06-03T00:02:00.000Z',
+      error: classify_task_error({
+        code: 'STORAGE_FAILED',
+        message: 'temporary storage error',
+        stage: 'storage',
+      }),
+    });
+    const pending = task({
+      task_id: 'task_20260604_source-process',
+      created_at: '2026-06-04T00:00:00.000Z',
+      updated_at: '2026-06-04T00:00:00.000Z',
+    });
+    await create_task(retryable, { cwd });
+    await create_task(pending, { cwd });
+
+    const claimed = await find_next_claimable_task(
+      {
+        owner_id: 'daemon-a',
+        now: '2026-06-03T00:02:30.000Z',
+        lease_timeout_ms: 30_000,
+      },
+      { cwd },
+    );
+
+    expect(claimed?.task_id).toBe(pending.task_id);
+  });
+
+  it('reads old task JSON without lease', async () => {
+    const cwd = await create_temp_dir();
+    const created = await create_task(task(), { cwd });
+    const file_path = task_json_path(created.task_id, { cwd });
+    const without_lease = { ...created } as Partial<LocalTask>;
+    delete without_lease.lease;
+    await writeFile(
+      file_path,
+      `${JSON.stringify(without_lease, null, 2)}\n`,
+      'utf8',
+    );
+
+    await expect(get_task(created.task_id, { cwd })).resolves.toMatchObject({
+      lease: null,
+    });
   });
 });

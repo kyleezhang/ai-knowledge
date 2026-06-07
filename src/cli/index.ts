@@ -52,6 +52,7 @@ import {
   enqueue_task_workflow,
   list_tasks_workflow,
   retry_task_workflow,
+  run_task_daemon_workflow,
   run_task_workflow,
   show_task_workflow,
 } from '../workflows/task-workflows.js';
@@ -369,6 +370,56 @@ export function create_program(
           return;
         }
         print_task_summary(result.data.summary, io);
+      },
+    );
+
+  task
+    .command('daemon')
+    .option('--max-runs <n>', 'Maximum tasks to execute before exiting')
+    .option('--idle-exit-after <n>', 'Exit after this many idle scans')
+    .option('--poll-interval-ms <n>', 'Milliseconds to wait between idle scans')
+    .option(
+      '--lease-timeout-ms <n>',
+      'Milliseconds before a task lease is stale',
+    )
+    .option('--json', 'Output JSON')
+    .description('Run a local task scheduling daemon in the foreground.')
+    .action(
+      async (options: {
+        maxRuns?: string;
+        idleExitAfter?: string;
+        pollIntervalMs?: string;
+        leaseTimeoutMs?: string;
+        json?: boolean;
+      }) => {
+        let stop_requested = false;
+        const on_stop = () => {
+          stop_requested = true;
+        };
+        process.once('SIGINT', on_stop);
+        process.once('SIGTERM', on_stop);
+        try {
+          const result = await run_task_daemon_workflow({
+            cwd: input.cwd,
+            max_runs: parse_optional_number(options.maxRuns),
+            idle_exit_after: parse_optional_number(options.idleExitAfter),
+            poll_interval_ms: parse_optional_number(options.pollIntervalMs),
+            lease_timeout_ms: parse_optional_number(options.leaseTimeoutMs),
+            should_stop: () => stop_requested,
+            embedding_provider: input.embedding_provider,
+          });
+          if (options.json) {
+            print_json_result(result, io);
+            return;
+          }
+          if (!handle_result(result, io)) {
+            return;
+          }
+          print_task_daemon_summary(result.data.summary, io);
+        } finally {
+          process.off('SIGINT', on_stop);
+          process.off('SIGTERM', on_stop);
+        }
       },
     );
 
@@ -1257,6 +1308,35 @@ function print_task_summary(
       `error: ${summary.last_error.code} ${summary.last_error.message}`,
     );
   }
+}
+
+function print_task_daemon_summary(
+  summary: {
+    owner_id: string;
+    exit_reason: string;
+    runs: Array<{
+      task_id: string;
+      type: string;
+      status: string;
+      attempts: number;
+    }>;
+    idle_cycles: number;
+  },
+  io: CliIo,
+): void {
+  io.stdout(`Task daemon exited: ${summary.exit_reason}`);
+  io.stdout(`owner_id: ${summary.owner_id}`);
+  io.stdout(`runs: ${summary.runs.length}`);
+  for (const run of summary.runs) {
+    io.stdout(
+      `${run.task_id} ${run.type} ${run.status} attempts=${run.attempts}`,
+    );
+  }
+  io.stdout(`idle_cycles: ${summary.idle_cycles}`);
+}
+
+function parse_optional_number(value: string | undefined): number | undefined {
+  return value === undefined ? undefined : Number(value);
 }
 
 function print_unconfirmed_materials(

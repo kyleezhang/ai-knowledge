@@ -53,6 +53,12 @@ export const RetryPolicySchema = z.object({
   retry_delay_ms: z.number().int().nonnegative(),
 });
 
+export const TaskLeaseSchema = z.object({
+  owner_id: z.string(),
+  claimed_at: z.string(),
+  expires_at: z.string(),
+});
+
 export const TaskErrorSchema = z.object({
   code: z.string(),
   message: z.string(),
@@ -79,12 +85,14 @@ export const LocalTaskSchema = z.object({
   created_at: z.string(),
   updated_at: z.string(),
   result_ref: z.string().nullable(),
+  lease: TaskLeaseSchema.nullable().optional().default(null),
 });
 
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 export type TaskType = z.infer<typeof TaskTypeSchema>;
 export type TaskPayload = z.infer<typeof TaskPayloadSchema>;
 export type RetryPolicy = z.infer<typeof RetryPolicySchema>;
+export type TaskLease = z.infer<typeof TaskLeaseSchema>;
 export type TaskError = z.infer<typeof TaskErrorSchema>;
 export type TaskAttempt = z.infer<typeof TaskAttemptSchema>;
 export type LocalTask = z.infer<typeof LocalTaskSchema>;
@@ -111,6 +119,17 @@ export function validate_local_task(task: LocalTask): void {
   ) {
     throw new Error('local task must have timestamps');
   }
+  if (task.lease !== null) {
+    if (task.lease.owner_id.trim().length === 0) {
+      throw new Error('local task lease must have owner_id');
+    }
+    if (
+      task.lease.claimed_at.trim().length === 0 ||
+      task.lease.expires_at.trim().length === 0
+    ) {
+      throw new Error('local task lease must have timestamps');
+    }
+  }
   validate_attempts(task.attempts);
   if (task.attempts.length > task.retry_policy.max_attempts) {
     throw new Error('local task attempts exceed max_attempts');
@@ -135,6 +154,81 @@ export function start_task_attempt(task: LocalTask, now: string): LocalTask {
   });
 }
 
+export function claim_task_lease(input: {
+  task: LocalTask;
+  owner_id: string;
+  now: string;
+  lease_timeout_ms: number;
+}): LocalTask {
+  if (input.owner_id.trim().length === 0) {
+    throw new Error('local task lease owner is required');
+  }
+  if (input.lease_timeout_ms <= 0) {
+    throw new Error('local task lease timeout must be positive');
+  }
+  const now_ms = Date.parse(input.now);
+  return parse_local_task({
+    ...input.task,
+    lease: {
+      owner_id: input.owner_id,
+      claimed_at: input.now,
+      expires_at: new Date(now_ms + input.lease_timeout_ms).toISOString(),
+    },
+    updated_at: input.now,
+  });
+}
+
+export function clear_task_lease(task: LocalTask, now: string): LocalTask {
+  return parse_local_task({ ...task, lease: null, updated_at: now });
+}
+
+export function task_lease_is_stale(task: LocalTask, now: string): boolean {
+  return (
+    task.lease !== null && Date.parse(task.lease.expires_at) <= Date.parse(now)
+  );
+}
+
+export function task_retry_due_at(task: LocalTask): string | null {
+  const last_attempt = task.attempts.at(-1);
+  if (
+    task.status !== 'retryable_failed' ||
+    last_attempt?.finished_at === null
+  ) {
+    return null;
+  }
+  if (last_attempt === undefined) {
+    return null;
+  }
+  return new Date(
+    Date.parse(last_attempt.finished_at) + task.retry_policy.retry_delay_ms,
+  ).toISOString();
+}
+
+export function task_is_daemon_eligible(input: {
+  task: LocalTask;
+  now: string;
+}): boolean {
+  if (
+    input.task.lease !== null &&
+    !task_lease_is_stale(input.task, input.now)
+  ) {
+    return false;
+  }
+  if (input.task.status === 'pending') {
+    return true;
+  }
+  if (input.task.status !== 'retryable_failed') {
+    return false;
+  }
+  if (input.task.attempts.length >= input.task.retry_policy.max_attempts) {
+    return false;
+  }
+  const retry_due_at = task_retry_due_at(input.task);
+  return (
+    retry_due_at !== null && Date.parse(retry_due_at) <= Date.parse(input.now)
+  );
+}
+
 export function complete_task_attempt(input: {
   task: LocalTask;
   now: string;
@@ -153,6 +247,7 @@ export function complete_task_attempt(input: {
     }),
     updated_at: input.now,
     result_ref: input.result_ref ?? input.task.result_ref,
+    lease: null,
   });
 }
 
@@ -177,6 +272,7 @@ export function fail_task_attempt(input: {
       error: input.error,
     }),
     updated_at: input.now,
+    lease: null,
   });
 }
 

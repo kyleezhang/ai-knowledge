@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   cancel_task,
+  claim_task_lease,
   classify_task_error,
   complete_task_attempt,
   fail_task_attempt,
   parse_local_task,
   start_task_attempt,
+  task_is_daemon_eligible,
+  task_lease_is_stale,
+  task_retry_due_at,
   type LocalTask,
 } from '../../src/domain/local-task.js';
 
@@ -137,5 +141,101 @@ describe('LocalTask domain', () => {
     expect(() => cancel_task(completed, '2026-06-03T00:03:00.000Z')).toThrow(
       'invalid task status transition',
     );
+  });
+
+  it('parses old task JSON without lease and validates task leases', () => {
+    expect(task().lease).toBeNull();
+
+    const claimed = claim_task_lease({
+      task: task(),
+      owner_id: 'daemon-a',
+      now: '2026-06-03T00:01:00.000Z',
+      lease_timeout_ms: 30_000,
+    });
+
+    expect(claimed.lease).toEqual({
+      owner_id: 'daemon-a',
+      claimed_at: '2026-06-03T00:01:00.000Z',
+      expires_at: '2026-06-03T00:01:30.000Z',
+    });
+    expect(() =>
+      claim_task_lease({
+        task: task(),
+        owner_id: '',
+        now: '2026-06-03T00:01:00.000Z',
+        lease_timeout_ms: 30_000,
+      }),
+    ).toThrow('local task lease owner is required');
+  });
+
+  it('detects stale leases', () => {
+    const claimed = claim_task_lease({
+      task: task(),
+      owner_id: 'daemon-a',
+      now: '2026-06-03T00:01:00.000Z',
+      lease_timeout_ms: 30_000,
+    });
+
+    expect(task_lease_is_stale(claimed, '2026-06-03T00:01:29.999Z')).toBe(
+      false,
+    );
+    expect(task_lease_is_stale(claimed, '2026-06-03T00:01:30.000Z')).toBe(true);
+  });
+
+  it('calculates retry due time and daemon eligibility', () => {
+    const retryable = fail_task_attempt({
+      task: start_task_attempt(
+        task({ retry_policy: { max_attempts: 3, retry_delay_ms: 60_000 } }),
+        '2026-06-03T00:01:00.000Z',
+      ),
+      now: '2026-06-03T00:02:00.000Z',
+      error: classify_task_error({
+        code: 'STORAGE_FAILED',
+        message: 'temporary storage error',
+        stage: 'storage',
+      }),
+    });
+
+    expect(task_retry_due_at(retryable)).toBe('2026-06-03T00:03:00.000Z');
+    expect(
+      task_is_daemon_eligible({
+        task: retryable,
+        now: '2026-06-03T00:02:59.999Z',
+      }),
+    ).toBe(false);
+    expect(
+      task_is_daemon_eligible({
+        task: retryable,
+        now: '2026-06-03T00:03:00.000Z',
+      }),
+    ).toBe(true);
+    expect(
+      task_is_daemon_eligible({
+        task: { ...retryable, status: 'failed' },
+        now: '2026-06-03T00:03:00.000Z',
+      }),
+    ).toBe(false);
+  });
+
+  it('blocks daemon eligibility while a lease is active', () => {
+    const claimed = claim_task_lease({
+      task: task(),
+      owner_id: 'daemon-a',
+      now: '2026-06-03T00:01:00.000Z',
+      lease_timeout_ms: 30_000,
+    });
+
+    expect(
+      task_is_daemon_eligible({
+        task: claimed,
+        now: '2026-06-03T00:01:29.999Z',
+      }),
+    ).toBe(false);
+    expect(
+      task_is_daemon_eligible({
+        task: claimed,
+        now: '2026-06-03T00:01:30.000Z',
+      }),
+    ).toBe(true);
   });
 });
