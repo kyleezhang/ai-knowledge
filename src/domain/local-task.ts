@@ -12,6 +12,8 @@ export const TaskStatusSchema = z.enum([
 export const TaskTypeSchema = z.enum([
   'source.process',
   'source.understand',
+  'note.render',
+  'note.lint',
   'note.index',
   'note.vector_index',
 ]);
@@ -22,6 +24,14 @@ const SourceProcessPayloadSchema = z.object({
 
 const SourceUnderstandPayloadSchema = z.object({
   source_id: z.string(),
+});
+
+const NoteRenderPayloadSchema = z.object({
+  note_id: z.string(),
+});
+
+const NoteLintPayloadSchema = z.object({
+  note_id: z.string(),
 });
 
 const NoteIndexPayloadSchema = z.object({
@@ -41,6 +51,8 @@ export const TaskPayloadSchema = z.discriminatedUnion('type', [
     type: z.literal('source.understand'),
     input: SourceUnderstandPayloadSchema,
   }),
+  z.object({ type: z.literal('note.render'), input: NoteRenderPayloadSchema }),
+  z.object({ type: z.literal('note.lint'), input: NoteLintPayloadSchema }),
   z.object({ type: z.literal('note.index'), input: NoteIndexPayloadSchema }),
   z.object({
     type: z.literal('note.vector_index'),

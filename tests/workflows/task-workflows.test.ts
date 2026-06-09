@@ -19,6 +19,7 @@ import {
 import { ingest_markdown_workflow } from '../../src/workflows/ingest-markdown-workflow.js';
 import {
   enqueue_task_workflow,
+  find_active_task_by_payload,
   list_tasks_workflow,
   retry_task_workflow,
   run_task_daemon_workflow,
@@ -80,6 +81,50 @@ describe('task workflows', () => {
     expect(run.data.task.status).toBe('succeeded');
     expect(run.data.task.attempts).toHaveLength(1);
     expect(run.data.task.result_ref).toBe(`source:${source_id}`);
+  });
+
+  it('runs scheduler-created note render tasks through existing workflow', async () => {
+    const cwd = await create_temp_dir();
+    const note = create_test_note();
+    await create_note({ note, markdown: 'stale markdown' }, { cwd });
+    const enqueue = await enqueue_task_workflow({
+      cwd,
+      now: new Date('2026-06-03T00:00:00.000Z'),
+      payload: { type: 'note.render', input: { note_id: note.id } },
+    });
+    if (!enqueue.ok) throw new Error(enqueue.error.message);
+
+    const run = await run_task_daemon_workflow({
+      cwd,
+      owner_id: 'scheduler-daemon',
+      now: new Date('2026-06-03T00:01:00.000Z'),
+      max_runs: 1,
+      idle_exit_after: 1,
+      poll_interval_ms: 0,
+      wait: async () => {},
+    });
+
+    expect(run.ok).toBe(true);
+    if (!run.ok) return;
+    expect(run.data.summary.runs).toEqual([
+      expect.objectContaining({ type: 'note.render', status: 'succeeded' }),
+    ]);
+  });
+
+  it('finds active tasks with equivalent payloads for scheduler dedupe', async () => {
+    const cwd = await create_temp_dir();
+    const source_id = await ingested_source(cwd);
+    const payload = { type: 'source.process' as const, input: { source_id } };
+    const enqueue = await enqueue_task_workflow({
+      cwd,
+      now: new Date('2026-06-03T00:00:00.000Z'),
+      payload,
+    });
+    if (!enqueue.ok) throw new Error(enqueue.error.message);
+
+    await expect(
+      find_active_task_by_payload({ cwd, payload }),
+    ).resolves.toEqual(enqueue.data.task);
   });
 
   it('records non-retryable invalid state failures', async () => {

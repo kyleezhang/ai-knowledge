@@ -12,6 +12,7 @@ export const KNOWLEDGE_SUBDIRS = [
   'notes',
   'index',
   'tasks',
+  'schedules',
 ] as const;
 
 export type InitStorageResult = {

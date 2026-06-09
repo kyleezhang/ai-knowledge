@@ -44,6 +44,27 @@ export type TaskWorkflowInput = {
   now?: Date;
 };
 
+export function task_payload_dedupe_key(payload: TaskPayload): string {
+  return JSON.stringify(payload);
+}
+
+export async function find_active_task_by_payload(
+  input: TaskWorkflowInput & { payload: TaskPayload },
+): Promise<LocalTask | null> {
+  const tasks = await list_tasks({
+    config: input.storage_config,
+    cwd: input.cwd,
+  });
+  const target_key = task_payload_dedupe_key(input.payload);
+  return (
+    tasks.find(
+      (task) =>
+        ['pending', 'running', 'retryable_failed'].includes(task.status) &&
+        task_payload_dedupe_key(task.payload) === target_key,
+    ) ?? null
+  );
+}
+
 export type TaskDaemonExitReason = 'max_runs_reached' | 'idle_exit' | 'stopped';
 
 export type TaskDaemonRun = {

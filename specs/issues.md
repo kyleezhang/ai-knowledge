@@ -4,7 +4,7 @@
 
 本文档基于 `specs/prd.md`、`specs/workflow.md`、`specs/schema.md` 与 `specs/implementation.md`，记录从 P0/P1 到最终预期能力的 issue 拆分，并作为当前实现状态的轻量路线图。
 
-### 1.1 当前实现快照（2026-06-03）
+### 1.1 当前实现快照（2026-06-09）
 
 当前应用已经实现以下用户可见能力：
 
@@ -21,16 +21,16 @@
 - 相关笔记基础能力：从 approved Notes 中发现候选关系，`note compose --related-note` 只允许写入显式确认的 related note ids。
 - Source / Note 归档与版本治理：支持 `source archive`、`note archive`、Note supersede；archived / superseded Note 会退出主检索并清理对应索引。
 - 向量索引基础：已定义 vector index / chunk / `vector_ref` 契约、storage helper、workflow 与 `note index --vector` 入口；真实 embedding provider 配置仍需后续接入。
-- 本地异步任务：支持 filesystem-backed `task enqueue/run/retry/list/show`、attempt 记录、retry policy 与受控 workflow runner。
-- 验收与测试：P0 Markdown、P1 PDF/URL、Candidate pool、归档/版本化、混合检索、fallback、本地任务工作流均有测试覆盖；真实 LLM smoke 依赖环境变量。
+- 本地异步任务：支持 filesystem-backed `task enqueue/run/retry/list/show/daemon`、attempt 记录、retry policy、lease/claim 与受控 workflow runner；task payload 覆盖 `source.process` / `source.understand` / `note.render` / `note.lint` / `note.index` / `note.vector_index`。
+- 定时自动采集与自动推进：支持 `LocalSchedule` 本地配置、`schedule create/list/show/enable/disable/tick`、`interval_minutes` / `daily_time` 规则、GitHub Trending / Hacker News 定时采集、safe auto-advance 入队、active task 去重和人工确认门槛保护。
+- 验收与测试：P0 Markdown、P1 PDF/URL、Candidate pool、归档/版本化、混合检索、fallback、本地任务工作流、定时自动化均有测试覆盖；真实 LLM smoke 依赖环境变量。
 
 ### 1.2 当前仍未完成或仅部分完成的能力
 
 - URL 导入的 raw 快照只保存 `raw/fetched.html` 和 `source.url`，尚未按早期 issue 条目保存独立 `raw/original.url` 或 redirect 后最终 URL。
 - 相关笔记尚未参与 answer 的上下文扩展排序；当前主要用于 compose 时写入 `Note.related_note_ids` 和 index/render 展示。
 - 向量索引已具备契约、storage、workflow 和测试，但真实 embedding provider 配置 / API key 环境变量接入仍未完成。
-- 本地异步任务已具备本地 task runtime 与手动 `task run`，但尚未支持定时自动采集、自动调度或后台 daemon。
-- 定时自动采集与自动推进仍是待办。
+- 定时自动化当前是本地 schedule + `schedule tick` 模式，可由外部 cron / launchd 或用户触发；不包含系统级后台服务安装器、远端队列或完整 cron 表达式解析。
 - Web UI 不在当前范围内。
 
 ### 1.3 状态标记
@@ -1141,7 +1141,7 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 #### What to build
 
-实现本地 filesystem-backed task 模型，用于封装预处理、理解生成、索引更新等可异步步骤。P0/P1 命令仍保留同步模式；异步任务首版通过 `ai-knowledge task run` 手动驱动，不包含后台 daemon 或自动调度。
+实现本地 filesystem-backed task 模型，用于封装预处理、理解生成、渲染、lint、索引更新等可异步步骤。P0/P1 命令仍保留同步模式；异步任务可通过 `ai-knowledge task run` 手动驱动，也可通过前台 `ai-knowledge task daemon` 运行 eligible tasks。自动 schedule 的生成与安全推进由 Issue 35 覆盖。
 
 #### Acceptance criteria
 
@@ -1150,11 +1150,13 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 - [x] 支持 `task list`
 - [x] 支持 `task show <task_id>`
 - [x] 支持 `task retry <task_id>`，且只允许 retryable_failed task
-- [x] `source.process` / `source.understand` / `note.index` / `note.vector_index` 可作为 task type
+- [x] 支持 `task daemon` 前台运行 eligible pending / retryable tasks，具备 lease/claim、bounded run、graceful stop 与 idle exit
+- [x] `source.process` / `source.understand` / `note.render` / `note.lint` / `note.index` / `note.vector_index` 可作为 task type
 - [x] task runner 只调用现有 workflows，不直接修改 Source / Note / Index business state
 - [x] task 失败不破坏 Source / Note 主真相边界
+- [x] scheduler-created tasks 与手动 task 复用同一 task runner / daemon 路径
 - [x] 支持 `--json`
-- [x] 覆盖 task domain、storage、runner、workflow 和 CLI 测试
+- [x] 覆盖 task domain、storage、runner、workflow、daemon 和 CLI 测试
 
 #### Blocked by
 
@@ -1164,27 +1166,34 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 ### Issue 35: 定时自动采集与自动推进
 
+- **Status**: Done
+- **Archived change**: `openspec/changes/archive/2026-06-09-scheduled-auto-collection-and-advancement/`
 - **Type**: AFK
 - **Blocked by**: Issue 23, Issue 34
 - **User stories covered**:
   - 系统可以定期发现新候选材料
-  - 自动流程只推进到候选推荐，不绕过用户选择和确认
+  - 自动流程只推进到候选推荐和非人工确认步骤，不绕过用户选择和确认
 
 #### What to build
 
-实现定时采集和可配置自动推进策略。自动化只能覆盖采集、候选评分和非交互预处理等环节，不能绕过 Candidate 选择、讨论确认或 Note approval 门槛。当前可复用 Issue 34 的本地 task runtime，但尚未实现 scheduler / daemon。
+实现定时采集和可配置自动推进策略。自动化只能覆盖采集、候选评分和非交互预处理 / 渲染 / lint / approved-only indexing 等环节，不能绕过 Candidate 选择、讨论确认、Note compose 或 Note approval 门槛。当前实现采用本地 filesystem-backed `LocalSchedule`、`schedule tick` 和 Issue 34 的 LocalTask runtime；可由用户手动触发或交给外部 cron / launchd 驱动。
 
 #### Acceptance criteria
 
-- [ ] 支持配置采集频率
-- [ ] 定时运行 GitHub Trending / Hacker News collector
-- [ ] 自动执行 dedupe / scoring / recommendation
-- [ ] 可选将用户选中的 Source 自动排队 process
-- [ ] 不自动把 Candidate 转 Source
-- [ ] 不自动 approve Source
-- [ ] 不自动 approve Note
-- [ ] 采集任务失败可在 task 中查看
-- [ ] 覆盖 scheduler 和 safety gate 测试
+- [x] 支持配置采集频率：`interval_minutes` / `daily_time`
+- [x] 定时运行 GitHub Trending / Hacker News collector
+- [x] 自动执行 dedupe / scoring / recommendation，并只落为 Candidate
+- [x] 可选将满足前置条件的 Source 自动排队 `source.process`
+- [x] 可选将满足前置条件的 Source 自动排队 `source.understand`
+- [x] 可选将 Note 自动排队 `note.render` / `note.lint` / approved-only `note.index`
+- [x] scheduler 入队前对 active equivalent task 做 dedupe
+- [x] 不自动把 Candidate 转 Source
+- [x] 不自动 approve Source
+- [x] 不自动 compose formal Note
+- [x] 不自动 approve Note
+- [x] 采集失败可在 schedule 最近运行摘要中查看；scheduler-created task 失败可在 LocalTask attempt 中查看
+- [x] 提供 `schedule create/list/show/enable/disable/tick` CLI，支持 `--json`
+- [x] 覆盖 scheduler、scheduled collection、auto advancement、task dedupe 和 safety gate 测试
 
 #### Blocked by
 
@@ -1203,12 +1212,12 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 #### What to build
 
-建立覆盖最终预期能力的端到端验收套件，包含主动导入、自动采集、候选选择、讨论确认、版本治理、混合检索和 fallback 问答。当前主要缺口是定时自动采集 / 自动推进相关验收。
+建立覆盖最终预期能力的端到端验收套件，包含主动导入、自动采集、候选选择、讨论确认、版本治理、混合检索和 fallback 问答。定时自动采集 / 自动推进已有 workflow 与 CLI 测试覆盖；最终套件仍需把这些能力串入完整端到端验收。
 
 #### Acceptance criteria
 
 - [ ] 覆盖 Markdown / PDF / URL / Feishu Doc 主动导入 happy path
-- [ ] 覆盖 GitHub Trending / Hacker News 自动采集 fixture
+- [x] 覆盖 GitHub Trending / Hacker News 自动采集 fixture
 - [ ] 覆盖 Candidate 推荐与选中转 Source
 - [ ] 覆盖 discussion convergence checker
 - [ ] 覆盖 Note archive 与 supersede
@@ -1284,9 +1293,9 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 32 depends on 31, 30 (Done)
 33 depends on 11, 32 (Done)
 
-34 depends on 12 (Done: local task runtime, manual run/retry)
-35 depends on 23, 34 (Backlog: scheduler / auto-advance)
-36 depends on 25, 27, 30, 33, 35 (Partial: hybrid/fallback covered; scheduler still blocks final suite)
+34 depends on 12 (Done: local task runtime, manual run/retry/daemon)
+35 depends on 23, 34 (Done: local schedules, scheduler tick, scheduled collection, safe auto-advance)
+36 depends on 25, 27, 30, 33, 35 (Partial: component coverage exists; full final E2E suite still pending)
 ```
 
 ## 4. Notes
@@ -1302,4 +1311,4 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 - Answer fallback 可以引用未确认材料，但必须显式标注，且不得把未确认材料写入主 index。
 - HITL issue 包括交互式讨论、候选选择、相关笔记确认、版本化判断和端到端验收。
 
-- Vector indexing / hybrid retrieval / answer fallback / local task runtime 已通过 archived OpenSpec changes 落地；真实 embedding provider 配置与定时自动调度仍是后续工作.
+- Vector indexing / hybrid retrieval / answer fallback / local task runtime / scheduled automation 已通过 archived OpenSpec changes 落地；真实 embedding provider 配置仍是后续工作.

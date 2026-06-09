@@ -14,6 +14,7 @@ import type { LlmClient } from '../agents/types.js';
 import type { CollectorResult } from '../collectors/types.js';
 import type { DocumentProcessingResult } from '../processing/document-processor.js';
 import type { AnswerAgentInput } from '../agents/answer-agent.js';
+import type { ScheduleRule } from '../domain/local-schedule.js';
 import { archive_note_workflow } from '../workflows/archive-note-workflow.js';
 import { archive_source_workflow } from '../workflows/archive-source-workflow.js';
 import type { DiscussionAgentInput } from '../agents/discussion-agent.js';
@@ -48,6 +49,14 @@ import { select_candidate_workflow } from '../workflows/select-candidate-workflo
 import { show_candidate_workflow } from '../workflows/show-candidate-workflow.js';
 import { show_note_workflow } from '../workflows/show-note-workflow.js';
 import { show_source_workflow } from '../workflows/show-source-workflow.js';
+import {
+  create_schedule_workflow,
+  disable_schedule_workflow,
+  enable_schedule_workflow,
+  list_schedules_workflow,
+  scheduler_tick_workflow,
+  show_schedule_workflow,
+} from '../workflows/schedule-workflows.js';
 import {
   enqueue_task_workflow,
   list_tasks_workflow,
@@ -321,6 +330,194 @@ export function create_program(
         print_unconfirmed_materials(result.data.unconfirmed_materials, io);
       },
     );
+
+  const schedule = program
+    .command('schedule')
+    .description('Manage local automation schedules.');
+
+  const schedule_create = schedule
+    .command('create')
+    .description('Create local automation schedules.');
+
+  schedule_create
+    .command('collection')
+    .argument('<provider>')
+    .option('--interval-minutes <n>', 'Run every N minutes')
+    .option('--daily-time <HH:mm>', 'Run daily at HH:mm UTC')
+    .option('--json', 'Output JSON')
+    .description('Create a scheduled Candidate collection.')
+    .action(
+      async (
+        provider: CandidateCollectorProvider,
+        options: {
+          intervalMinutes?: string;
+          dailyTime?: string;
+          json?: boolean;
+        },
+      ) => {
+        const rule = parse_schedule_rule_options(options, io);
+        if (rule === null) {
+          return;
+        }
+        const result = await create_schedule_workflow({
+          cwd: input.cwd,
+          type: 'candidate.collect',
+          provider,
+          rule,
+        });
+        if (options.json) {
+          print_json_result(result, io);
+          return;
+        }
+        if (!handle_result(result, io)) {
+          return;
+        }
+        io.stdout('Schedule created.');
+        print_schedule_summary(result.data.summary, io);
+      },
+    );
+
+  schedule_create
+    .command('auto-advance')
+    .option('--interval-minutes <n>', 'Run every N minutes')
+    .option('--daily-time <HH:mm>', 'Run daily at HH:mm UTC')
+    .option('--json', 'Output JSON')
+    .description('Create a safe auto-advancement schedule.')
+    .action(
+      async (options: {
+        intervalMinutes?: string;
+        dailyTime?: string;
+        json?: boolean;
+      }) => {
+        const rule = parse_schedule_rule_options(options, io);
+        if (rule === null) {
+          return;
+        }
+        const result = await create_schedule_workflow({
+          cwd: input.cwd,
+          type: 'auto.advance',
+          rule,
+        });
+        if (options.json) {
+          print_json_result(result, io);
+          return;
+        }
+        if (!handle_result(result, io)) {
+          return;
+        }
+        io.stdout('Schedule created.');
+        io.stdout(
+          'Auto-advance will not select Candidates, approve Sources, compose Notes, or approve Notes.',
+        );
+        print_schedule_summary(result.data.summary, io);
+      },
+    );
+
+  schedule
+    .command('list')
+    .option('--json', 'Output JSON')
+    .description('List local automation schedules.')
+    .action(async (options: { json?: boolean }) => {
+      const result = await list_schedules_workflow({ cwd: input.cwd });
+      if (options.json) {
+        print_json_result(result, io);
+        return;
+      }
+      if (!handle_result(result, io)) {
+        return;
+      }
+      if (result.data.schedules.length === 0) {
+        io.stdout('No schedules found.');
+        return;
+      }
+      for (const summary of result.data.schedules) {
+        print_schedule_summary(summary, io);
+      }
+    });
+
+  schedule
+    .command('show')
+    .argument('<schedule_id>')
+    .option('--json', 'Output JSON')
+    .description('Show a local automation schedule.')
+    .action(async (schedule_id: string, options: { json?: boolean }) => {
+      const result = await show_schedule_workflow({
+        cwd: input.cwd,
+        schedule_id,
+      });
+      if (options.json) {
+        print_json_result(result, io);
+        return;
+      }
+      if (!handle_result(result, io)) {
+        return;
+      }
+      print_schedule_summary(result.data.summary, io);
+    });
+
+  schedule
+    .command('enable')
+    .argument('<schedule_id>')
+    .option('--json', 'Output JSON')
+    .description('Enable a local automation schedule.')
+    .action(async (schedule_id: string, options: { json?: boolean }) => {
+      const result = await enable_schedule_workflow({
+        cwd: input.cwd,
+        schedule_id,
+      });
+      if (options.json) {
+        print_json_result(result, io);
+        return;
+      }
+      if (!handle_result(result, io)) {
+        return;
+      }
+      io.stdout('Schedule enabled.');
+      print_schedule_summary(result.data.summary, io);
+    });
+
+  schedule
+    .command('disable')
+    .argument('<schedule_id>')
+    .option('--json', 'Output JSON')
+    .description('Disable a local automation schedule.')
+    .action(async (schedule_id: string, options: { json?: boolean }) => {
+      const result = await disable_schedule_workflow({
+        cwd: input.cwd,
+        schedule_id,
+      });
+      if (options.json) {
+        print_json_result(result, io);
+        return;
+      }
+      if (!handle_result(result, io)) {
+        return;
+      }
+      io.stdout('Schedule disabled.');
+      print_schedule_summary(result.data.summary, io);
+    });
+
+  schedule
+    .command('tick')
+    .option('--json', 'Output JSON')
+    .description('Run one scheduler tick.')
+    .action(async (options: { json?: boolean }) => {
+      const result = await scheduler_tick_workflow({
+        cwd: input.cwd,
+        collect_candidates:
+          input.collect_candidates === undefined
+            ? undefined
+            : (provider) => input.collect_candidates!(provider),
+      });
+      if (options.json) {
+        print_json_result(result, io);
+        return;
+      }
+      if (!handle_result(result, io)) {
+        return;
+      }
+      print_schedule_tick_summary(result.data.summary, io);
+    });
 
   const task = program.command('task').description('Manage local async tasks.');
 
@@ -1272,6 +1469,8 @@ function build_task_payload(
 ):
   | { type: 'source.process'; input: { source_id: string } }
   | { type: 'source.understand'; input: { source_id: string } }
+  | { type: 'note.render'; input: { note_id: string } }
+  | { type: 'note.lint'; input: { note_id: string } }
   | { type: 'note.index'; input: { note_id: string } }
   | { type: 'note.vector_index'; input: { note_id: string } }
   | null {
@@ -1280,12 +1479,76 @@ function build_task_payload(
       return { type, input: { source_id: target_id } };
     case 'source.understand':
       return { type, input: { source_id: target_id } };
+    case 'note.render':
+      return { type, input: { note_id: target_id } };
+    case 'note.lint':
+      return { type, input: { note_id: target_id } };
     case 'note.index':
       return { type, input: { note_id: target_id } };
     case 'note.vector_index':
       return { type, input: { note_id: target_id } };
     default:
       return null;
+  }
+}
+
+function parse_schedule_rule_options(
+  options: { intervalMinutes?: string; dailyTime?: string },
+  io: CliIo,
+): ScheduleRule | null {
+  const has_interval = options.intervalMinutes !== undefined;
+  const has_daily = options.dailyTime !== undefined;
+  if (has_interval === has_daily) {
+    io.stderr('Provide exactly one of --interval-minutes or --daily-time.');
+    io.set_exit_code(1);
+    return null;
+  }
+  if (has_interval) {
+    const interval_minutes = Number(options.intervalMinutes);
+    if (!Number.isInteger(interval_minutes) || interval_minutes <= 0) {
+      io.stderr('--interval-minutes must be a positive integer.');
+      io.set_exit_code(1);
+      return null;
+    }
+    return { kind: 'interval_minutes', interval_minutes };
+  }
+  return { kind: 'daily_time', daily_time: options.dailyTime! };
+}
+
+function print_schedule_summary(
+  summary: {
+    schedule_id: string;
+    type: string;
+    status: string;
+    next_run_at: string;
+    last_run_at: string | null;
+    last_run_status: string | null;
+  },
+  io: CliIo,
+): void {
+  io.stdout(`${summary.schedule_id} ${summary.type} ${summary.status}`);
+  io.stdout(`next_run_at: ${summary.next_run_at}`);
+  io.stdout(`last_run_at: ${summary.last_run_at ?? 'null'}`);
+  io.stdout(`last_run_status: ${summary.last_run_status ?? 'null'}`);
+}
+
+function print_schedule_tick_summary(
+  summary: {
+    ran_at: string;
+    results: Array<{
+      schedule_id: string;
+      status: string;
+      message: string;
+      created_task_ids: string[];
+    }>;
+  },
+  io: CliIo,
+): void {
+  io.stdout(`Scheduler tick: ${summary.ran_at}`);
+  for (const result of summary.results) {
+    io.stdout(
+      `${result.schedule_id} ${result.status}: ${result.message} tasks=${result.created_task_ids.length}`,
+    );
   }
 }
 

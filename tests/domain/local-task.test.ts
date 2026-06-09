@@ -54,6 +54,29 @@ describe('LocalTask domain', () => {
     ).toThrow('local task payload type must match task type');
   });
 
+  it('parses scheduler safe note render and lint payloads', () => {
+    expect(
+      task({
+        task_id: 'task_20260603_note-render',
+        type: 'note.render',
+        payload: {
+          type: 'note.render',
+          input: { note_id: 'note_20260514_test-note' },
+        },
+      }),
+    ).toMatchObject({ type: 'note.render' });
+    expect(
+      task({
+        task_id: 'task_20260603_note-lint',
+        type: 'note.lint',
+        payload: {
+          type: 'note.lint',
+          input: { note_id: 'note_20260514_test-note' },
+        },
+      }),
+    ).toMatchObject({ type: 'note.lint' });
+  });
+
   it('records attempts and completes successfully', () => {
     const running = start_task_attempt(task(), '2026-06-03T00:01:00.000Z');
     const completed = complete_task_attempt({

@@ -36,6 +36,18 @@ export function tasks_root(context: StoragePathContext = {}): string {
   return path.join(knowledge_dir(context), 'tasks');
 }
 
+export function schedules_root(context: StoragePathContext = {}): string {
+  return path.join(knowledge_dir(context), 'schedules');
+}
+
+export function schedule_json_path(
+  schedule_id: string,
+  context: StoragePathContext = {},
+): string {
+  const { year, month } = schedule_year_month(schedule_id);
+  return path.join(schedules_root(context), year, month, `${schedule_id}.json`);
+}
+
 export function task_json_path(
   task_id: string,
   context: StoragePathContext = {},
@@ -192,6 +204,24 @@ export function source_processed_dir(
   context: StoragePathContext = {},
 ): string {
   return path.join(source_dir(source_id, context), 'processed');
+}
+
+export function schedule_year_month(schedule_id: string): {
+  year: string;
+  month: string;
+} {
+  const match = /^sch_(\d{4})(\d{2})\d{2}_/.exec(schedule_id);
+  if (match === null) {
+    throw new StorageError({
+      code: 'INVALID_PATH',
+      message: `Invalid schedule id: ${schedule_id}`,
+    });
+  }
+
+  return {
+    year: match[1],
+    month: match[2],
+  };
 }
 
 export function task_year_month(task_id: string): {

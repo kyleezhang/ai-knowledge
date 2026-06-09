@@ -3,7 +3,9 @@ import type { LlmClient } from '../agents/types.js';
 import type { LocalTask } from '../domain/local-task.js';
 import type { StorageConfig } from '../storage/config.js';
 import { index_note_workflow } from './index-note-workflow.js';
+import { lint_note_workflow } from './lint-note-workflow.js';
 import { process_source_workflow } from './process-source-workflow.js';
+import { render_note_workflow } from './render-note-workflow.js';
 import { understand_source_workflow } from './understand-source-workflow.js';
 import type { WorkflowResult } from './types.js';
 
@@ -34,6 +36,26 @@ export async function run_local_task_payload(
         llm_client: input.llm_client,
       });
       return map_result(result, `source:${input.task.payload.input.source_id}`);
+    }
+    case 'note.render': {
+      const result = await render_note_workflow({
+        ...common,
+        note_id: input.task.payload.input.note_id,
+      });
+      return map_result(
+        result,
+        `note:${input.task.payload.input.note_id}:render`,
+      );
+    }
+    case 'note.lint': {
+      const result = await lint_note_workflow({
+        ...common,
+        note_id: input.task.payload.input.note_id,
+      });
+      return map_result(
+        result,
+        `note:${input.task.payload.input.note_id}:lint`,
+      );
     }
     case 'note.index': {
       const result = await index_note_workflow({
