@@ -298,9 +298,9 @@ export function classify_task_error(input: {
   message: string;
   stage: string;
 }): TaskError {
-  const retryable = ['AGENT_FAILED', 'STORAGE_FAILED', 'UNKNOWN'].includes(
-    input.code,
-  );
+  const retryable =
+    ['AGENT_FAILED', 'STORAGE_FAILED', 'UNKNOWN'].includes(input.code) &&
+    !input.message.startsWith('Missing API key environment variable:');
   return { ...input, retryable };
 }
 

@@ -110,6 +110,13 @@ describe('LocalTask domain', () => {
         stage: 'workflow',
       }),
     ).toMatchObject({ retryable: false });
+    expect(
+      classify_task_error({
+        code: 'AGENT_FAILED',
+        message: 'Missing API key environment variable: VOYAGE_API_KEY',
+        stage: 'workflow',
+      }),
+    ).toMatchObject({ retryable: false });
   });
 
   it('moves retryable failures to retryable_failed while attempts remain', () => {

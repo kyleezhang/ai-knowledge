@@ -75,10 +75,11 @@ export async function run_local_llm_smoke_test(
   } = {},
 ): Promise<SmokeRunResult> {
   const env = input.env ?? process.env;
-  if ((env.DEEPSEEK_API_KEY ?? '').trim().length === 0) {
+  const missing_required_env = required_smoke_env_vars(env);
+  if (missing_required_env.length > 0) {
     return {
       status: 'skipped',
-      reason: 'Missing DEEPSEEK_API_KEY. Local smoke test was skipped.',
+      reason: `Missing ${missing_required_env.join(', ')}. Local smoke test was skipped.`,
     };
   }
 
@@ -226,8 +227,12 @@ async function run_smoke_path(
   );
 
   await run(['note', 'index', note_id, '--json'], context);
+  await run(['note', 'index', note_id, '--vector', '--json'], context);
 
-  const answer_output = await run(['answer', config.question], context);
+  const answer_output = await run(
+    ['answer', config.question, '--hybrid'],
+    context,
+  );
   assert(
     answer_output.includes('## 综合结论'),
     `${config.label} smoke expected grounded answer heading.`,
@@ -239,6 +244,12 @@ async function run_smoke_path(
   );
 
   return { path: config.label, source_id, note_id, answer_conclusion };
+}
+
+function required_smoke_env_vars(env: NodeJS.ProcessEnv): string[] {
+  return ['DEEPSEEK_API_KEY', 'VOYAGE_API_KEY'].filter(
+    (name) => (env[name] ?? '').trim().length === 0,
+  );
 }
 
 function smoke_path_config(label: SmokePathLabel): SmokePathConfig {
@@ -499,5 +510,6 @@ async function* async_iter(items: string[]): AsyncIterable<string> {
 export const __test_only__ = {
   extract_answer_conclusion,
   format_smoke_command_error,
+  required_smoke_env_vars,
   smoke_paths,
 };

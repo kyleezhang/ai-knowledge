@@ -1,5 +1,5 @@
 import type { EmbeddingProvider } from '../agents/embedding-provider.js';
-import { UnsupportedEmbeddingProvider } from '../agents/embedding-provider.js';
+import { ConfiguredEmbeddingProvider } from '../agents/embedding-provider.js';
 import { build_index_entry } from '../indexing/build-index-entry.js';
 import {
   build_note_vector_chunks,
@@ -49,9 +49,10 @@ export async function index_note_workflow(
     if (input.include_vector === true) {
       const chunks = build_note_vector_chunks(note);
       const provider =
-        input.embedding_provider ?? new UnsupportedEmbeddingProvider();
+        input.embedding_provider ?? new ConfiguredEmbeddingProvider();
       const embedding_result = await provider.generate_embeddings({
         texts: chunks.map((chunk) => chunk.text),
+        input_type: 'document',
       });
       const vector_index = build_vector_index({
         note,

@@ -136,6 +136,41 @@ describe('approve and index note workflows', () => {
     expect(vector_index.chunks.length).toBeGreaterThan(0);
   });
 
+  it('fails vector indexing without configured provider credentials', async () => {
+    const cwd = await create_temp_dir();
+    const note = create_test_note({
+      status: 'approved',
+      approved_at: '2026-05-14T01:00:00.000Z',
+      quality_checks: passed_quality_checks,
+    });
+    await create_note({ note, markdown: render_note_markdown(note) }, { cwd });
+
+    const previous = process.env.VOYAGE_API_KEY;
+    delete process.env.VOYAGE_API_KEY;
+    try {
+      const result = await index_note_workflow({
+        cwd,
+        note_id: note.id,
+        include_vector: true,
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.message).toContain(
+          'Missing API key environment variable: VOYAGE_API_KEY',
+        );
+      }
+      await expect(get_index_entry(note.id, { cwd })).rejects.toBeDefined();
+      await expect(get_vector_index(note.id, { cwd })).rejects.toBeDefined();
+    } finally {
+      if (previous === undefined) {
+        delete process.env.VOYAGE_API_KEY;
+      } else {
+        process.env.VOYAGE_API_KEY = previous;
+      }
+    }
+  });
+
   it('does not update vector_ref when vector indexing fails', async () => {
     const cwd = await create_temp_dir();
     const note = create_test_note({

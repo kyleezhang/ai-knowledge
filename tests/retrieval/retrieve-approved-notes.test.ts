@@ -312,6 +312,75 @@ describe('hybrid approved note retrieval', () => {
     expect(results[0].retrieval.debug.join('\n')).toContain('no vector_ref');
   });
 
+  it('continues with keyword results when configured query provider is missing credentials', async () => {
+    const cwd = await create_temp_dir();
+    const note = approved_note({
+      id: 'note_20260514_missing-provider',
+      title: 'Missing Provider Agent',
+      conclusion: 'Missing provider fallback.',
+    });
+    await create_note({ note, markdown: render_note_markdown(note) }, { cwd });
+    await save_index_entry(
+      {
+        ...build_index_entry(note),
+        vector_ref: {
+          index_id: `vec_${note.id}`,
+          path: '2026/05/note_20260514_missing-provider.vector.json',
+          embedding_model: 'voyage-4',
+          embedding_dimensions: 2,
+          chunker_version: 'note-json-v1',
+          created_at: '2026-05-14T00:00:00.000Z',
+        },
+      },
+      { cwd },
+    );
+    await save_vector_index(
+      {
+        index_id: `vec_${note.id}`,
+        note_id: note.id,
+        embedding_model: 'voyage-4',
+        embedding_dimensions: 2,
+        chunker_version: 'note-json-v1',
+        created_at: '2026-05-14T00:00:00.000Z',
+        chunks: [
+          {
+            chunk_id: 'chunk_0001',
+            source_field: 'title',
+            content_hash: 'abc123',
+            text: note.title,
+            embedding: [1, 0],
+          },
+        ],
+      },
+      { cwd },
+    );
+
+    const previous = process.env.VOYAGE_API_KEY;
+    delete process.env.VOYAGE_API_KEY;
+    try {
+      const results = await retrieve_hybrid_approved_notes({
+        cwd,
+        question: 'missing provider agent',
+        top_k: 5,
+        include_debug: true,
+      });
+
+      expect(results).toHaveLength(1);
+      expect(results[0].retrieval.signals.map((signal) => signal.type)).toEqual(
+        ['keyword'],
+      );
+      expect(results[0].retrieval.debug.join('\n')).toContain(
+        'Missing API key environment variable: VOYAGE_API_KEY',
+      );
+    } finally {
+      if (previous === undefined) {
+        delete process.env.VOYAGE_API_KEY;
+      } else {
+        process.env.VOYAGE_API_KEY = previous;
+      }
+    }
+  });
+
   it('omits vector signal on dimension mismatch', async () => {
     const cwd = await create_temp_dir();
     const note = approved_note({

@@ -311,38 +311,48 @@ describe('answer question workflow', () => {
       { cwd },
     );
     let agent_received_chunk_text = false;
+    const previous = process.env.VOYAGE_API_KEY;
+    delete process.env.VOYAGE_API_KEY;
 
-    const result = await answer_question_workflow({
-      cwd,
-      question: 'hybrid answer',
-      retrieval_mode: 'hybrid',
-      include_retrieval_debug: true,
-      metadata_filter: { boost_tags: ['answer'] },
-      answer: async ({ agent_input }) => {
-        agent_received_chunk_text = agent_input.approved_notes.some((item) =>
-          JSON.stringify(item).includes('best chunk'),
-        );
-        return {
-          conclusion: 'Hybrid answer grounded in Note JSON.',
-          cited_notes: agent_input.approved_notes.map((item) => ({
-            note_id: item.id,
-            title: item.title,
-            relevant_points: item.conclusions,
-          })),
-          unconfirmed_materials: [],
-          limitations: [],
-        };
-      },
-    });
+    try {
+      const result = await answer_question_workflow({
+        cwd,
+        question: 'hybrid answer',
+        retrieval_mode: 'hybrid',
+        include_retrieval_debug: true,
+        metadata_filter: { boost_tags: ['answer'] },
+        answer: async ({ agent_input }) => {
+          agent_received_chunk_text = agent_input.approved_notes.some((item) =>
+            JSON.stringify(item).includes('best chunk'),
+          );
+          return {
+            conclusion: 'Hybrid answer grounded in Note JSON.',
+            cited_notes: agent_input.approved_notes.map((item) => ({
+              note_id: item.id,
+              title: item.title,
+              relevant_points: item.conclusions,
+            })),
+            unconfirmed_materials: [],
+            limitations: [],
+          };
+        },
+      });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(agent_received_chunk_text).toBe(false);
-    expect(result.data.matched_note_ids).toEqual([note.id]);
-    expect(result.data.retrieval_results).toHaveLength(1);
-    expect(
-      result.data.retrieval_results[0].signals.map((signal) => signal.type),
-    ).toEqual(['keyword', 'metadata']);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(agent_received_chunk_text).toBe(false);
+      expect(result.data.matched_note_ids).toEqual([note.id]);
+      expect(result.data.retrieval_results).toHaveLength(1);
+      expect(
+        result.data.retrieval_results[0].signals.map((signal) => signal.type),
+      ).toEqual(['keyword', 'metadata']);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.VOYAGE_API_KEY;
+      } else {
+        process.env.VOYAGE_API_KEY = previous;
+      }
+    }
   });
 
   it('hybrid mode falls back to keyword matches when vector is unavailable', async () => {
@@ -353,30 +363,40 @@ describe('answer question workflow', () => {
     );
     await create_note({ note, markdown: render_note_markdown(note) }, { cwd });
     await save_index_entry(build_index_entry(note), { cwd });
+    const previous = process.env.VOYAGE_API_KEY;
+    delete process.env.VOYAGE_API_KEY;
 
-    const result = await answer_question_workflow({
-      cwd,
-      question: 'hybrid fallback',
-      retrieval_mode: 'hybrid',
-      include_retrieval_debug: true,
-      answer: async ({ agent_input }) => ({
-        conclusion: 'Fallback answer.',
-        cited_notes: agent_input.approved_notes.map((item) => ({
-          note_id: item.id,
-          title: item.title,
-          relevant_points: item.conclusions,
-        })),
-        unconfirmed_materials: [],
-        limitations: [],
-      }),
-    });
+    try {
+      const result = await answer_question_workflow({
+        cwd,
+        question: 'hybrid fallback',
+        retrieval_mode: 'hybrid',
+        include_retrieval_debug: true,
+        answer: async ({ agent_input }) => ({
+          conclusion: 'Fallback answer.',
+          cited_notes: agent_input.approved_notes.map((item) => ({
+            note_id: item.id,
+            title: item.title,
+            relevant_points: item.conclusions,
+          })),
+          unconfirmed_materials: [],
+          limitations: [],
+        }),
+      });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.data.matched_note_ids).toEqual([note.id]);
-    expect(result.data.retrieval_results[0].debug.join('\n')).toContain(
-      'no vector_ref',
-    );
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.data.matched_note_ids).toEqual([note.id]);
+      expect(result.data.retrieval_results[0].debug.join('\n')).toContain(
+        'no vector_ref',
+      );
+    } finally {
+      if (previous === undefined) {
+        delete process.env.VOYAGE_API_KEY;
+      } else {
+        process.env.VOYAGE_API_KEY = previous;
+      }
+    }
   });
 
   it('surfaces answer agent failure', async () => {

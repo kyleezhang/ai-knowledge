@@ -229,6 +229,28 @@ describe('P0 end-to-end acceptance CLI', () => {
       'provider failed',
     );
 
+    const missing_vector_provider_harness = create_cli_harness(cwd);
+    const previous_voyage_key = process.env.VOYAGE_API_KEY;
+    delete process.env.VOYAGE_API_KEY;
+    try {
+      await missing_vector_provider_harness.run([
+        'note',
+        'index',
+        note_id,
+        '--vector',
+      ]);
+      expect(missing_vector_provider_harness.exit_code).toBe(1);
+      expect(missing_vector_provider_harness.stderr.join('\n')).toContain(
+        'Missing API key environment variable: VOYAGE_API_KEY',
+      );
+    } finally {
+      if (previous_voyage_key === undefined) {
+        delete process.env.VOYAGE_API_KEY;
+      } else {
+        process.env.VOYAGE_API_KEY = previous_voyage_key;
+      }
+    }
+
     let answer_input: AnswerAgentInput | undefined;
     const answer_harness = create_cli_harness(cwd, {
       answer: async ({ agent_input }) => {
@@ -268,21 +290,38 @@ describe('P0 end-to-end acceptance CLI', () => {
         limitations: [],
       }),
     });
-    await hybrid_answer_harness.run([
-      'answer',
-      acceptance_question,
-      '--hybrid',
-      '--json',
-    ]);
-    const hybrid_answer_json = JSON.parse(hybrid_answer_harness.stdout[0]) as {
-      ok: true;
-      data: {
-        matched_note_ids: string[];
-        retrieval_results: Array<{ note_id: string }>;
+    const previous_hybrid_voyage_key = process.env.VOYAGE_API_KEY;
+    delete process.env.VOYAGE_API_KEY;
+    try {
+      await hybrid_answer_harness.run([
+        'answer',
+        acceptance_question,
+        '--hybrid',
+        '--json',
+      ]);
+      const hybrid_answer_json = JSON.parse(
+        hybrid_answer_harness.stdout[0],
+      ) as {
+        ok: true;
+        data: {
+          matched_note_ids: string[];
+          retrieval_results: Array<{ note_id: string; debug: string[] }>;
+        };
       };
-    };
-    expect(hybrid_answer_json.data.matched_note_ids).toEqual([note_id]);
-    expect(hybrid_answer_json.data.retrieval_results[0].note_id).toBe(note_id);
+      expect(hybrid_answer_json.data.matched_note_ids).toEqual([note_id]);
+      expect(hybrid_answer_json.data.retrieval_results[0].note_id).toBe(
+        note_id,
+      );
+      expect(
+        hybrid_answer_json.data.retrieval_results[0].debug.join('\n'),
+      ).toContain('Missing API key environment variable: VOYAGE_API_KEY');
+    } finally {
+      if (previous_hybrid_voyage_key === undefined) {
+        delete process.env.VOYAGE_API_KEY;
+      } else {
+        process.env.VOYAGE_API_KEY = previous_hybrid_voyage_key;
+      }
+    }
 
     const fallback_fixture = await write_markdown_fixture(
       cwd,

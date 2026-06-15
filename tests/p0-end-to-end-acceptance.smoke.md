@@ -2,14 +2,14 @@
 
 ## 目的
 
-这条 smoke test 是唯一维护的真实 LLM smoke 入口，用真实 `DEEPSEEK_API_KEY` 在本地显式跑一遍 Markdown、PDF、URL 三类输入的关键主链路，用来补充 fake-agent 验收覆盖不到的真实 provider / prompt / JSON 协议问题。
+这条 smoke test 是唯一维护的真实 provider smoke 入口，用真实 `DEEPSEEK_API_KEY` 与 `VOYAGE_API_KEY` 在本地显式跑一遍 Markdown、PDF、URL 三类输入的关键主链路，并额外验证真实 embedding provider 下的 `note index --vector` 与 `answer --hybrid`，用来补充 fake-agent 验收覆盖不到的真实 provider / prompt / JSON 协议问题。
 
 ## 重要说明
 
 - 该检查 **仅本地显式触发**，不会并入默认 `pnpm test`。
 - 该检查会消耗 token，并可能受 provider 波动影响。
 - 该检查 **不要求逐字稳定输出**，只校验关键状态与关键产物。
-- 未配置 `DEEPSEEK_API_KEY` 时，脚本默认跳过并返回非阻塞结果。
+- 未配置 `DEEPSEEK_API_KEY` 或 `VOYAGE_API_KEY` 时，脚本默认跳过并返回非阻塞结果。
 
 ## 运行方式
 
@@ -26,8 +26,9 @@ node scripts/local-llm-smoke.mjs --keep-workdir
 ## 前置条件
 
 - shell 环境中已配置 `DEEPSEEK_API_KEY`
+- shell 环境中已配置 `VOYAGE_API_KEY`
 - 不要把 API key 写入仓库文件
-- 本地环境可访问 deepseek provider
+- 本地环境可访问 deepseek provider 与 Voyage embedding provider
 
 ## 验证范围
 
@@ -40,12 +41,12 @@ node scripts/local-llm-smoke.mjs --keep-workdir
 每类输入都会跑关键主链路：
 
 ```text
-source ingest -> process -> understand -> discuss -> approve -> note compose -> lint -> approve -> index -> answer
+source ingest -> process -> understand -> discuss -> approve -> note compose -> lint -> approve -> index -> vector index -> hybrid answer
 ```
 
 关键检查项：
 
-- Markdown / PDF / URL 三条 path 都完成到 approved Note、index entry 与 answer
+- Markdown / PDF / URL 三条 path 都完成到 approved Note、index entry、vector index 与 hybrid answer
 - `processed/clean_text.md` / `segments.json` / `metadata.json` 已生成
 - PDF / URL path 验证 processed evidence locator
 - URL path 验证 frozen HTML snapshot

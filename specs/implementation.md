@@ -144,11 +144,18 @@ ai-knowledge.config.json
     "base_url": "https://api.deepseek.com/anthropic",
     "api_key_env": "GATEWAY_API_KEY",
     "default_model": "deepseek-v4-pro"
+  },
+  "embedding": {
+    "provider": "voyage",
+    "base_url": "https://api.voyageai.com/v1",
+    "api_key_env": "VOYAGE_API_KEY",
+    "default_model": "voyage-4",
+    "embedding_dimensions": 1024
   }
 }
 ```
 
-配置文件只存放非敏感配置。API key 等敏感信息必须走环境变量，不得写入仓库。
+配置文件只存放非敏感配置。API key 等敏感信息必须走环境变量，不得写入仓库。Anthropic 当前不提供自有 embedding 模型；P3 embedding provider 默认使用 Voyage HTTP API，显式向量索引需要 `VOYAGE_API_KEY`。
 
 ## 5. 工程结构规范
 

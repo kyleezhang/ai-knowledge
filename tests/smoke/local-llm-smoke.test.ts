@@ -5,19 +5,29 @@ import {
 } from '../../src/smoke/local-llm-smoke.js';
 
 describe('local LLM smoke test', () => {
-  it('skips without DEEPSEEK_API_KEY and does not fail', async () => {
+  it('skips without required provider keys and does not fail', async () => {
     const result = await run_local_llm_smoke_test({
-      env: { ...process.env, DEEPSEEK_API_KEY: '' },
+      env: { ...process.env, DEEPSEEK_API_KEY: '', VOYAGE_API_KEY: '' },
     });
 
     expect(result).toEqual({
       status: 'skipped',
-      reason: 'Missing DEEPSEEK_API_KEY. Local smoke test was skipped.',
+      reason:
+        'Missing DEEPSEEK_API_KEY, VOYAGE_API_KEY. Local smoke test was skipped.',
     });
   });
 
   it('defines one unified smoke path list for Markdown, PDF, and URL', () => {
     expect(__test_only__.smoke_paths).toEqual(['markdown', 'pdf', 'url']);
+  });
+
+  it('requires both chat and embedding provider keys for real smoke', () => {
+    expect(
+      __test_only__.required_smoke_env_vars({
+        DEEPSEEK_API_KEY: 'deepseek-key',
+        VOYAGE_API_KEY: '',
+      }),
+    ).toEqual(['VOYAGE_API_KEY']);
   });
 
   it('extracts the answer conclusion from CLI output', () => {

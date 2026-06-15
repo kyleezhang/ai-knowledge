@@ -19,7 +19,7 @@ The system SHALL combine keyword, metadata, and vector retrieval signals into No
 - **AND** top-k selection counts the Note once
 
 ### Requirement: Hybrid Retrieval Uses Approved Main Index As Candidate Boundary
-The system SHALL start hybrid retrieval from approved main Index Entries. Hybrid retrieval MUST NOT return draft, archived, superseded, missing, or unloadable Notes.
+The system SHALL start hybrid retrieval from approved main Index Entries. Hybrid retrieval MUST NOT return draft, archived, superseded, missing, or unloadable Notes. Configured embedding provider usage MUST NOT expand the candidate boundary beyond approved main Index Entries.
 
 #### Scenario: Approved index entry is matched
 - **WHEN** an approved Index Entry matches hybrid retrieval
@@ -33,6 +33,11 @@ The system SHALL start hybrid retrieval from approved main Index Entries. Hybrid
 
 #### Scenario: Vector hit references archived Note
 - **WHEN** a vector hit references an archived or superseded Note
+- **THEN** hybrid retrieval excludes that hit from main results
+- **AND** does not use vector metadata to answer from that Note
+
+#### Scenario: Query embedding matches stale vector data
+- **WHEN** a configured embedding provider returns a query embedding and stale vector data exists for an archived or superseded Note
 - **THEN** hybrid retrieval excludes that hit from main results
 - **AND** does not use vector metadata to answer from that Note
 
@@ -66,7 +71,18 @@ The system SHALL calculate deterministic hybrid scores from normalized keyword, 
 - **AND** then by `note_id` ascending for deterministic output
 
 ### Requirement: Vector Signal Is Optional In Hybrid Retrieval
-The system SHALL treat vector retrieval as an optional signal. If query embedding or vector index loading is unavailable, hybrid retrieval MUST continue with keyword and metadata signals and expose the vector-unavailable reason in debug output.
+The system SHALL treat vector retrieval as an optional signal. If query embedding provider configuration, query embedding generation, or vector index loading is unavailable, hybrid retrieval MUST continue with keyword and metadata signals and expose the vector-unavailable reason in debug output.
+
+#### Scenario: Query embedding provider is configured
+- **WHEN** hybrid retrieval is called with vector-capable configuration and no fake embedding provider is injected
+- **THEN** the retrieval layer may resolve the configured embedding provider through the agent layer
+- **AND** use it to generate a query embedding for vector scoring
+
+#### Scenario: Query embedding provider config is missing
+- **WHEN** hybrid retrieval cannot resolve a usable embedding provider configuration
+- **THEN** vector signal is omitted from scoring
+- **AND** keyword and metadata retrieval may still return approved Notes
+- **AND** debug output records the provider configuration or environment variable reason when requested
 
 #### Scenario: Query embedding provider fails
 - **WHEN** hybrid retrieval cannot generate a query embedding

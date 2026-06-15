@@ -4,7 +4,7 @@
 
 本文档基于 `specs/prd.md`、`specs/workflow.md`、`specs/schema.md` 与 `specs/implementation.md`，记录从 P0/P1 到最终预期能力的 issue 拆分，并作为当前实现状态的轻量路线图。
 
-### 1.1 当前实现快照（2026-06-09）
+### 1.1 当前实现快照（2026-06-13）
 
 当前应用已经实现以下用户可见能力：
 
@@ -20,16 +20,15 @@
 - Candidate 候选池：GitHub Trending / Hacker News 采集、去重、过滤、规则评分、推荐、选择并转换为 Source。
 - 相关笔记基础能力：从 approved Notes 中发现候选关系，`note compose --related-note` 只允许写入显式确认的 related note ids。
 - Source / Note 归档与版本治理：支持 `source archive`、`note archive`、Note supersede；archived / superseded Note 会退出主检索并清理对应索引。
-- 向量索引基础：已定义 vector index / chunk / `vector_ref` 契约、storage helper、workflow 与 `note index --vector` 入口；真实 embedding provider 配置仍需后续接入。
+- 向量索引：已定义 vector index / chunk / `vector_ref` 契约、storage helper、workflow 与 `note index --vector` 入口，并接入配置化 Voyage embedding provider；默认关键词索引不依赖 embedding key，显式 vector indexing 需要 `VOYAGE_API_KEY`。
 - 本地异步任务：支持 filesystem-backed `task enqueue/run/retry/list/show/daemon`、attempt 记录、retry policy、lease/claim 与受控 workflow runner；task payload 覆盖 `source.process` / `source.understand` / `note.render` / `note.lint` / `note.index` / `note.vector_index`。
 - 定时自动采集与自动推进：支持 `LocalSchedule` 本地配置、`schedule create/list/show/enable/disable/tick`、`interval_minutes` / `daily_time` 规则、GitHub Trending / Hacker News 定时采集、safe auto-advance 入队、active task 去重和人工确认门槛保护。
-- 验收与测试：P0 Markdown、P1 PDF/URL、Candidate pool、归档/版本化、混合检索、fallback、本地任务工作流、定时自动化均有测试覆盖；真实 LLM smoke 依赖环境变量。
+- 验收与测试：P0 Markdown、P1 PDF/URL、Candidate pool、归档/版本化、混合检索、fallback、本地任务工作流、定时自动化均有测试覆盖；真实 provider smoke 依赖 `DEEPSEEK_API_KEY` 与 `VOYAGE_API_KEY`。
 
 ### 1.2 当前仍未完成或仅部分完成的能力
 
 - URL 导入的 raw 快照只保存 `raw/fetched.html` 和 `source.url`，尚未按早期 issue 条目保存独立 `raw/original.url` 或 redirect 后最终 URL。
 - 相关笔记尚未参与 answer 的上下文扩展排序；当前主要用于 compose 时写入 `Note.related_note_ids` 和 index/render 展示。
-- 向量索引已具备契约、storage、workflow 和测试，但真实 embedding provider 配置 / API key 环境变量接入仍未完成。
 - 定时自动化当前是本地 schedule + `schedule tick` 模式，可由外部 cron / launchd 或用户触发；不包含系统级后台服务安装器、远端队列或完整 cron 表达式解析。
 - Web UI 不在当前范围内。
 
@@ -1039,7 +1038,7 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 ### Issue 31: 向量索引契约与 embedding 生成
 
-- **Status**: Partial
+- **Status**: Done
 - **Type**: AFK
 - **Blocked by**: Issue 10
 - **User stories covered**:
@@ -1048,11 +1047,11 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 
 #### What to build
 
-定义并实现 Note embedding 生成、向量文件或向量存储引用，以及 `IndexEntry.vector_ref` 的更新策略。当前已完成本地 vector index 契约、chunk/schema、storage、workflow、CLI 显式入口与 mock provider 测试；真实 embedding provider 配置仍未接入。
+定义并实现 Note embedding 生成、向量文件或向量存储引用，以及 `IndexEntry.vector_ref` 的更新策略。当前已完成本地 vector index 契约、chunk/schema、storage、workflow、CLI 显式入口、配置化 Voyage embedding provider 与 mock provider 测试；默认 keyword index 不依赖 embedding key，显式 vector indexing 需要 `VOYAGE_API_KEY`。
 
 #### Acceptance criteria
 
-- [ ] 定义真实 embedding provider 配置，API key 只能来自环境变量
+- [x] 定义真实 embedding provider 配置，API key 只能来自环境变量
 - [x] 定义 vector artifact / vector ref 格式
 - [x] `note index --vector` 具备显式向量索引构建入口
 - [x] `IndexEntry.vector_ref` 指向可读取的向量引用
@@ -1289,7 +1288,7 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 29 depends on 10, 26
 30 depends on 28, 29
 
-31 depends on 10 (Partial: real embedding provider config remains)
+31 depends on 10 (Done: vector contract, workflow, and configurable Voyage embedding provider)
 32 depends on 31, 30 (Done)
 33 depends on 11, 32 (Done)
 
@@ -1311,4 +1310,4 @@ PDF / Public URL -> Source -> Processed Artifacts -> Draft Understanding
 - Answer fallback 可以引用未确认材料，但必须显式标注，且不得把未确认材料写入主 index。
 - HITL issue 包括交互式讨论、候选选择、相关笔记确认、版本化判断和端到端验收。
 
-- Vector indexing / hybrid retrieval / answer fallback / local task runtime / scheduled automation 已通过 archived OpenSpec changes 落地；真实 embedding provider 配置仍是后续工作.
+- Vector indexing / hybrid retrieval / answer fallback / local task runtime / scheduled automation 已通过 OpenSpec changes 落地；vector indexing 现已接入配置化 Voyage embedding provider，真实 smoke 需同时配置 `DEEPSEEK_API_KEY` 与 `VOYAGE_API_KEY`.

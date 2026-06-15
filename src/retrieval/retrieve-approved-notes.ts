@@ -1,4 +1,5 @@
 import type { EmbeddingProvider } from '../agents/embedding-provider.js';
+import { ConfiguredEmbeddingProvider } from '../agents/embedding-provider.js';
 import type {
   HybridRetrievalOptions,
   HybridRetrievalResult,
@@ -121,7 +122,6 @@ export async function retrieve_hybrid_approved_notes(
       const vector_signal = await build_vector_signal({
         entry,
         query_embedding,
-        embedding_provider_present: input.embedding_provider !== undefined,
         context,
         debug,
       });
@@ -322,16 +322,12 @@ async function generate_query_embedding(
   dimensions: number;
   unavailable_reason: string | null;
 }> {
-  if (input.embedding_provider === undefined) {
-    return {
-      embedding: [],
-      dimensions: 0,
-      unavailable_reason: 'embedding provider not configured',
-    };
-  }
   try {
-    const result = await input.embedding_provider.generate_embeddings({
+    const provider =
+      input.embedding_provider ?? new ConfiguredEmbeddingProvider();
+    const result = await provider.generate_embeddings({
       texts: [input.question],
+      input_type: 'query',
     });
     if (result.embeddings.length !== 1) {
       return {
@@ -362,7 +358,6 @@ async function build_vector_signal(input: {
     dimensions: number;
     unavailable_reason: string | null;
   };
-  embedding_provider_present: boolean;
   context: { config?: Partial<StorageConfig>; cwd?: string };
   debug: string[];
 }): Promise<HybridRetrievalSignal | null> {
@@ -374,10 +369,6 @@ async function build_vector_signal(input: {
     input.debug.push(
       `vector unavailable: ${input.query_embedding.unavailable_reason}`,
     );
-    return null;
-  }
-  if (!input.embedding_provider_present) {
-    input.debug.push('vector unavailable: embedding provider not configured');
     return null;
   }
   let vector_index: VectorIndex;
