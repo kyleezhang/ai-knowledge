@@ -14,10 +14,29 @@ import type { StorageConfig } from '../storage/config.js';
 import { get_vector_index, list_index_entries } from '../storage/index-repo.js';
 import { get_note } from '../storage/note-repo.js';
 
+export const default_related_context_limit = 5;
+export const default_related_per_direct_note_limit = 2;
+
+export type RelatedExpansionOptions = {
+  related_context_limit?: number;
+  related_per_direct_note_limit?: number;
+  include_debug?: boolean;
+};
+
 export type RetrievedApprovedNote = {
   entry: IndexEntry;
   note: Note;
   score: number;
+  retrieval?: HybridRetrievalResult;
+};
+
+export type RelatedExpansionDebug = {
+  messages: string[];
+};
+
+export type RelatedExpansionResult = {
+  results: RetrievedApprovedNote[];
+  debug: RelatedExpansionDebug;
 };
 
 export type RetrieveApprovedNotesInput = {
@@ -25,7 +44,7 @@ export type RetrieveApprovedNotesInput = {
   top_k: number;
   storage_config?: Partial<StorageConfig>;
   cwd?: string;
-};
+} & RelatedExpansionOptions;
 
 export type HybridRetrievedApprovedNote = RetrievedApprovedNote & {
   retrieval: HybridRetrievalResult;
@@ -38,9 +57,8 @@ export type RetrieveHybridApprovedNotesInput = {
   cwd?: string;
   metadata_filter?: MetadataFilter;
   weights?: HybridRetrievalOptions['weights'];
-  include_debug?: boolean;
   embedding_provider?: EmbeddingProvider;
-};
+} & RelatedExpansionOptions;
 
 const default_hybrid_weights = {
   keyword: 0.4,
@@ -65,14 +83,35 @@ export async function retrieve_approved_notes(
     scored.map(async (item) => {
       try {
         const note = await get_note(item.entry.note_id, context);
-        return note.status === 'approved' ? { ...item, note } : null;
+        return note.status === 'approved'
+          ? {
+              ...item,
+              note,
+              retrieval: direct_retrieval_result({
+                entry: item.entry,
+                score: item.score,
+                include_debug: input.include_debug,
+              }),
+            }
+          : null;
       } catch {
         return null;
       }
     }),
   );
 
-  return loaded.filter((item): item is RetrievedApprovedNote => item !== null);
+  const direct: RetrievedApprovedNote[] = loaded.filter(
+    (item): item is NonNullable<(typeof loaded)[number]> => item !== null,
+  );
+  return (
+    await expand_related_approved_notes({
+      direct,
+      context,
+      related_context_limit: input.related_context_limit,
+      related_per_direct_note_limit: input.related_per_direct_note_limit,
+      include_debug: input.include_debug,
+    })
+  ).results;
 }
 
 function score_entry(entry: IndexEntry, terms: string[]): number {
@@ -172,7 +211,10 @@ export async function retrieve_hybrid_approved_notes(
               entry: item.entry,
               note,
               score: item.retrieval.final_score,
-              retrieval: item.retrieval,
+              retrieval: parse_hybrid_retrieval_result({
+                ...item.retrieval,
+                retrieval_role: 'direct',
+              }),
             }
           : null;
       } catch {
@@ -181,9 +223,186 @@ export async function retrieve_hybrid_approved_notes(
     }),
   );
 
-  return loaded.filter(
+  const direct = loaded.filter(
     (item): item is HybridRetrievedApprovedNote => item !== null,
   );
+  return (
+    await expand_related_approved_notes({
+      direct,
+      context,
+      related_context_limit: input.related_context_limit,
+      related_per_direct_note_limit: input.related_per_direct_note_limit,
+      include_debug: input.include_debug,
+    })
+  ).results as HybridRetrievedApprovedNote[];
+}
+
+export async function expand_related_approved_notes(input: {
+  direct: RetrievedApprovedNote[];
+  context: { config?: Partial<StorageConfig>; cwd?: string };
+  related_context_limit?: number;
+  related_per_direct_note_limit?: number;
+  include_debug?: boolean;
+}): Promise<RelatedExpansionResult> {
+  const total_limit =
+    input.related_context_limit ?? default_related_context_limit;
+  const per_direct_limit =
+    input.related_per_direct_note_limit ??
+    default_related_per_direct_note_limit;
+  const debug: string[] = [];
+  const direct_ids = new Set(input.direct.map((item) => item.note.id));
+  const seen_related_ids = new Set<string>();
+  const related: RetrievedApprovedNote[] = [];
+
+  if (total_limit <= 0 || per_direct_limit <= 0) {
+    debug.push('related expansion skipped: related limit is zero');
+    return { results: input.direct, debug: { messages: debug } };
+  }
+
+  for (const direct of input.direct) {
+    const direct_related_note_ids = new Set([
+      ...direct.note.related_note_ids,
+      ...direct.entry.related_note_ids,
+    ]);
+    let added_for_direct = 0;
+    let truncated_for_direct = 0;
+    for (const related_note_id of direct_related_note_ids) {
+      if (added_for_direct >= per_direct_limit) {
+        truncated_for_direct += 1;
+        continue;
+      }
+      if (related.length >= total_limit) {
+        debug.push(
+          `related expansion truncated: total limit ${total_limit} reached`,
+        );
+        return append_related_debug({
+          direct: input.direct,
+          related,
+          debug,
+          include_debug: input.include_debug,
+        });
+      }
+      if (direct_ids.has(related_note_id)) {
+        debug.push(
+          `related skipped: ${related_note_id} is already a direct match`,
+        );
+        continue;
+      }
+      if (seen_related_ids.has(related_note_id)) {
+        debug.push(`related skipped: ${related_note_id} is duplicate`);
+        continue;
+      }
+
+      try {
+        const note = await get_note(related_note_id, input.context);
+        if (note.status !== 'approved') {
+          debug.push(
+            `related skipped: ${related_note_id} status is ${note.status}`,
+          );
+          continue;
+        }
+        const entry = await find_index_entry_for_note(note, input.context);
+        const retrieval = parse_hybrid_retrieval_result({
+          note_id: note.id,
+          final_score: 0,
+          retrieval_role: 'related',
+          related_via_note_id: direct.note.id,
+          related_via_title: direct.note.title,
+          signals: [
+            {
+              type: 'metadata',
+              score: 1,
+              normalized_score: 0,
+              explanation: `related via ${direct.note.id}`,
+            },
+          ],
+          debug:
+            input.include_debug === true
+              ? [`related via ${direct.note.id}`]
+              : [],
+        });
+        related.push({ entry, note, score: 0, retrieval });
+        seen_related_ids.add(note.id);
+        added_for_direct += 1;
+      } catch {
+        debug.push(`related skipped: ${related_note_id} could not be loaded`);
+      }
+    }
+    if (truncated_for_direct > 0) {
+      debug.push(
+        `related expansion truncated: ${truncated_for_direct} related notes skipped for ${direct.note.id} by per-direct limit ${per_direct_limit}`,
+      );
+    }
+  }
+
+  return append_related_debug({
+    direct: input.direct,
+    related,
+    debug,
+    include_debug: input.include_debug,
+  });
+}
+
+function append_related_debug(input: {
+  direct: RetrievedApprovedNote[];
+  related: RetrievedApprovedNote[];
+  debug: string[];
+  include_debug?: boolean;
+}): RelatedExpansionResult {
+  if (input.include_debug === true && input.debug.length > 0) {
+    for (const item of [...input.direct, ...input.related]) {
+      if (item.retrieval !== undefined) {
+        item.retrieval.debug.push(...input.debug);
+      }
+    }
+  }
+  return {
+    results: [...input.direct, ...input.related],
+    debug: { messages: input.debug },
+  };
+}
+
+async function find_index_entry_for_note(
+  note: Note,
+  context: { config?: Partial<StorageConfig>; cwd?: string },
+): Promise<IndexEntry> {
+  const entries = await list_index_entries(context);
+  const entry = entries.find((item) => item.note_id === note.id);
+  if (entry !== undefined) {
+    return entry;
+  }
+  return {
+    note_id: note.id,
+    title: note.title,
+    summary: note.conclusions[0] ?? note.current_understanding,
+    keywords: [],
+    tags: [],
+    status: 'approved',
+    approved_at: note.approved_at ?? note.updated_at,
+    related_note_ids: note.related_note_ids,
+    vector_ref: null,
+  };
+}
+
+function direct_retrieval_result(input: {
+  entry: IndexEntry;
+  score: number;
+  include_debug?: boolean;
+}): HybridRetrievalResult {
+  return parse_hybrid_retrieval_result({
+    note_id: input.entry.note_id,
+    final_score: input.score,
+    retrieval_role: 'direct',
+    signals: [
+      {
+        type: 'keyword',
+        score: input.score,
+        normalized_score: Math.min(1, input.score),
+        explanation: 'matched keyword retrieval',
+      },
+    ],
+    debug: input.include_debug === true ? [] : [],
+  });
 }
 
 function build_non_vector_signals(

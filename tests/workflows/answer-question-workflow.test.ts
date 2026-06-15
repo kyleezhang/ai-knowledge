@@ -27,7 +27,11 @@ const passed_quality_checks = {
   last_checked_at: '2026-05-14T00:00:00.000Z',
 } as const;
 
-function approved_note(id: string, title: string) {
+function approved_note(
+  id: string,
+  title: string,
+  options: { related_note_ids?: string[] } = {},
+) {
   return create_test_note({
     id,
     root_note_id: id,
@@ -36,6 +40,7 @@ function approved_note(id: string, title: string) {
     status: 'approved',
     approved_at: '2026-05-14T00:00:00.000Z',
     conclusions: [`${title} conclusion`],
+    related_note_ids: options.related_note_ids ?? [],
     quality_checks: { ...passed_quality_checks, empty_sections: [] },
   });
 }
@@ -92,6 +97,66 @@ describe('answer question workflow', () => {
     if (!result.ok) return;
     expect(result.data.matched_note_ids).toEqual([note.id]);
     expect(result.data.answer.cited_notes[0].note_id).toBe(note.id);
+  });
+
+  it('passes direct notes before related approved notes to the answer agent', async () => {
+    const cwd = await create_temp_dir();
+    const related = approved_note(
+      'note_20260514_supplementary-context',
+      'Supplementary Context',
+    );
+    const direct = approved_note(
+      'note_20260514_direct-answer',
+      'Direct Answer',
+      { related_note_ids: [related.id] },
+    );
+    await create_note(
+      { note: direct, markdown: render_note_markdown(direct) },
+      { cwd },
+    );
+    await create_note(
+      { note: related, markdown: render_note_markdown(related) },
+      { cwd },
+    );
+    await save_index_entry(build_index_entry(direct), { cwd });
+    await save_index_entry(build_index_entry(related), { cwd });
+
+    const result = await answer_question_workflow({
+      cwd,
+      question: 'direct answer',
+      include_retrieval_debug: true,
+      answer: async ({ agent_input }) => {
+        expect(agent_input.approved_notes.map((note) => note.id)).toEqual([
+          direct.id,
+          related.id,
+        ]);
+        return {
+          conclusion: 'Direct answer with related context.',
+          cited_notes: agent_input.approved_notes.map((item) => ({
+            note_id: item.id,
+            title: item.title,
+            relevant_points: item.conclusions,
+          })),
+          unconfirmed_materials: [],
+          limitations: [],
+        };
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.matched_note_ids).toEqual([direct.id, related.id]);
+    expect(result.data.retrieval_results).toEqual([
+      expect.objectContaining({
+        note_id: direct.id,
+        retrieval_role: 'direct',
+      }),
+      expect.objectContaining({
+        note_id: related.id,
+        retrieval_role: 'related',
+        related_via_note_id: direct.id,
+      }),
+    ]);
   });
 
   it('uses explicit fallback only when enabled and keeps state unchanged', async () => {
@@ -304,13 +369,25 @@ describe('answer question workflow', () => {
 
   it('answers in hybrid mode while passing only approved notes to the agent', async () => {
     const cwd = await create_temp_dir();
-    const note = approved_note('note_20260514_hybrid-answer', 'Hybrid Answer');
+    const related = approved_note(
+      'note_20260514_semantic-supplement',
+      'Semantic Supplement',
+    );
+    const note = approved_note('note_20260514_hybrid-answer', 'Hybrid Answer', {
+      related_note_ids: [related.id],
+    });
     await create_note({ note, markdown: render_note_markdown(note) }, { cwd });
+    await create_note(
+      { note: related, markdown: render_note_markdown(related) },
+      { cwd },
+    );
     await save_index_entry(
       { ...build_index_entry(note), keywords: ['hybrid'], tags: ['answer'] },
       { cwd },
     );
+    await save_index_entry(build_index_entry(related), { cwd });
     let agent_received_chunk_text = false;
+    let agent_received_non_notes = false;
     const previous = process.env.VOYAGE_API_KEY;
     delete process.env.VOYAGE_API_KEY;
 
@@ -325,6 +402,13 @@ describe('answer question workflow', () => {
           agent_received_chunk_text = agent_input.approved_notes.some((item) =>
             JSON.stringify(item).includes('best chunk'),
           );
+          agent_received_non_notes = agent_input.approved_notes.some(
+            (item) => item.status !== 'approved',
+          );
+          expect(agent_input.approved_notes.map((item) => item.id)).toEqual([
+            note.id,
+            related.id,
+          ]);
           return {
             conclusion: 'Hybrid answer grounded in Note JSON.',
             cited_notes: agent_input.approved_notes.map((item) => ({
@@ -341,11 +425,18 @@ describe('answer question workflow', () => {
       expect(result.ok).toBe(true);
       if (!result.ok) return;
       expect(agent_received_chunk_text).toBe(false);
-      expect(result.data.matched_note_ids).toEqual([note.id]);
-      expect(result.data.retrieval_results).toHaveLength(1);
+      expect(agent_received_non_notes).toBe(false);
+      expect(result.data.matched_note_ids).toEqual([note.id, related.id]);
+      expect(result.data.retrieval_results).toHaveLength(2);
       expect(
         result.data.retrieval_results[0].signals.map((signal) => signal.type),
       ).toEqual(['keyword', 'metadata']);
+      expect(result.data.retrieval_results[0].retrieval_role).toBe('direct');
+      expect(result.data.retrieval_results[1]).toMatchObject({
+        note_id: related.id,
+        retrieval_role: 'related',
+        related_via_note_id: note.id,
+      });
     } finally {
       if (previous === undefined) {
         delete process.env.VOYAGE_API_KEY;

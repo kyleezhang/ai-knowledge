@@ -1,12 +1,6 @@
-# Related Notes Specification
-
-## Purpose
-
-This capability defines how approved Notes can be discovered as related note candidates and explicitly confirmed before relationships are written into formal Note JSON.
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Related Note Discovery Uses Approved Notes
-
 The system SHALL generate related note candidates only from approved Notes. Draft, archived, superseded, unapproved, Source, Candidate, and raw material records MUST NOT be used as main related note candidates. Answer context expansion using `related_note_ids` MUST also load only current approved Notes.
 
 #### Scenario: Candidates are generated from approved Notes
@@ -26,17 +20,7 @@ The system SHALL generate related note candidates only from approved Notes. Draf
 - **THEN** the workflow skips that related Note
 - **AND** records a debug reason when machine-readable output is requested
 
-### Requirement: Related Note Candidates Are Explainable
-
-The system SHALL include an explainable reason for each related note candidate. The reason MUST be derived from visible Note metadata, title, conclusions, keywords, tags, or other approved Note fields, not from hidden model state.
-
-#### Scenario: Candidate reason is displayed
-- **WHEN** related note discovery returns a candidate
-- **THEN** the candidate includes `note_id`, `title`, and `reason`
-- **AND** the reason explains why the candidate may be related
-
 ### Requirement: Related Note Confirmation Is Explicit
-
 The system SHALL require explicit user or workflow confirmation before a related note candidate can be written into `Note.related_note_ids`. Answer context expansion MUST consume only already-confirmed `related_note_ids` and MUST NOT create, infer, or mutate relationships.
 
 #### Scenario: User confirms a candidate
@@ -57,7 +41,6 @@ The system SHALL require explicit user or workflow confirmation before a related
 - **AND** it MUST NOT modify Note objects or relationship data
 
 ### Requirement: Related Notes Can Supplement Answer Context
-
 The system SHALL allow confirmed `related_note_ids` from directly matched approved Notes to provide one-hop supplementary answer context. The workflow MUST distinguish direct matches from related expansions and MUST cap related expansion to avoid unbounded answer context growth.
 
 #### Scenario: Direct note has approved related note
@@ -75,11 +58,3 @@ The system SHALL allow confirmed `related_note_ids` from directly matched approv
 - **WHEN** confirmed related notes exceed the configured expansion limit
 - **THEN** the workflow includes only up to the limit
 - **AND** records truncation information in debug output when requested
-
-### Requirement: Related Note Discovery Supports JSON Output
-
-The system SHALL provide machine-readable output for related note discovery and confirmation workflows.
-
-#### Scenario: User requests JSON discovery output
-- **WHEN** the user requests JSON output for related note discovery
-- **THEN** the output includes candidate Note ids, titles, reasons, and confirmation status

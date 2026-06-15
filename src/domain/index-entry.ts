@@ -90,11 +90,16 @@ export const HybridRetrievalOptionsSchema = z.object({
   include_debug: z.boolean().optional(),
 });
 
+export const AnswerRetrievalRoleSchema = z.enum(['direct', 'related']);
+
 export const HybridRetrievalResultSchema = z.object({
   note_id: z.string(),
   final_score: z.number().min(0),
   signals: z.array(HybridRetrievalSignalSchema),
   debug: z.array(z.string()),
+  retrieval_role: AnswerRetrievalRoleSchema.default('direct'),
+  related_via_note_id: z.string().optional(),
+  related_via_title: z.string().optional(),
 });
 
 export const IndexEntrySchema = z.object({
@@ -117,6 +122,7 @@ export type UnconfirmedEvidence = z.infer<typeof UnconfirmedEvidenceSchema>;
 export type AnswerFallbackOptions = z.infer<typeof AnswerFallbackOptionsSchema>;
 export type AnswerFallbackResult = z.infer<typeof AnswerFallbackResultSchema>;
 export type HybridRetrievalSignal = z.infer<typeof HybridRetrievalSignalSchema>;
+export type AnswerRetrievalRole = z.infer<typeof AnswerRetrievalRoleSchema>;
 export type MetadataFilter = z.infer<typeof MetadataFilterSchema>;
 export type HybridRetrievalOptions = z.infer<
   typeof HybridRetrievalOptionsSchema
@@ -179,6 +185,18 @@ export function validate_hybrid_retrieval_result(
   }
   if (result.signals.length === 0) {
     throw new Error('hybrid retrieval result must have signals');
+  }
+  if (result.retrieval_role === 'direct') {
+    if (result.related_via_note_id !== undefined) {
+      throw new Error(
+        'direct retrieval result must not have related_via_note_id',
+      );
+    }
+  } else if (
+    result.related_via_note_id === undefined ||
+    result.related_via_note_id.trim().length === 0
+  ) {
+    throw new Error('related retrieval result must have related_via_note_id');
   }
   for (const signal of result.signals) {
     if (!Number.isFinite(signal.score) || signal.score < 0) {

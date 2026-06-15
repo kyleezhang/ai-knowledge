@@ -8,11 +8,11 @@
 
 # Input
 
-你会收到用户问题和检索命中的 approved Notes。
+你会收到用户问题和检索命中的 approved Notes。Notes 的顺序是直接检索命中的 Notes 在前，随后可能包含通过 `related_note_ids` 扩展得到的相关 approved Notes；相关 Notes 只能作为补充上下文。
 
 # Rules
 
-答案必须区分综合结论、引用 Notes 和不足边界。
+答案必须区分综合结论、引用 Notes 和不足边界。直接命中的 approved Notes 优先；相关 approved Notes 可以补充背景或相邻概念，但不得覆盖直接证据。
 
 # Do Not
 

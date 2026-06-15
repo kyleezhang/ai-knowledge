@@ -1,9 +1,5 @@
-# Answer Grounding Specification
+## MODIFIED Requirements
 
-## Purpose
-
-This capability defines how the system answers user questions using approved knowledge first while preserving uncertainty about unapproved material.
-## Requirements
 ### Requirement: Answers Prefer Approved Notes
 The system SHALL prefer approved notes as the primary evidence source for answers. P0 answer workflow MUST use only approved Notes loaded through approved Index Entries. When direct retrieval matches approved Notes that contain confirmed `related_note_ids`, answer workflow MAY load one-hop related approved Notes as supplementary confirmed context. When P3 hybrid retrieval is explicitly enabled, answer workflow MUST still use hybrid results only to locate approved Notes and MUST ground answers in the loaded `note.json` records. When unconfirmed fallback is explicitly enabled, approved Notes remain primary evidence and unconfirmed materials may only be used as labeled secondary evidence.
 
@@ -32,62 +28,6 @@ The system SHALL prefer approved notes as the primary evidence source for answer
 - **THEN** the answer may include unconfirmed materials as secondary evidence
 - **AND** approved Notes remain primary evidence whenever available
 
-
-### Requirement: Unapproved Material Is Secondary Evidence
-The system SHALL NOT use raw sources, draft understanding, or discussion summaries as secondary evidence in P0 answer workflow. When fallback is explicitly enabled, the system MAY use structured unconfirmed materials as secondary evidence, but MUST label them as unconfirmed and MUST NOT use raw artifacts.
-
-#### Scenario: Approved notes are insufficient
-- **WHEN** approved notes do not sufficiently answer the question
-- **THEN** the P0 system reports limitations
-- **AND** does not consult raw sources or discussion-stage material
-
-#### Scenario: Explicit fallback uses structured material
-- **WHEN** fallback is explicitly enabled and structured unconfirmed materials match the question
-- **THEN** the system may use those materials as secondary evidence
-- **AND** labels them as unconfirmed
-
-#### Scenario: Raw source exists
-- **WHEN** only raw Source material matches the question
-- **THEN** the answer workflow does not use that raw material as fallback evidence
-
-
-### Requirement: Answers Do Not Invent Unsupported Claims
-The system SHALL avoid fabricating conclusions when available knowledge is insufficient. Claims based on fallback evidence MUST be phrased as unconfirmed and MUST include limitations.
-
-#### Scenario: Retrieval has insufficient evidence
-- **WHEN** neither approved notes nor clearly marked secondary evidence support an answer
-- **THEN** the system states that the current knowledge base is insufficient
-- **AND** does not present unsupported claims as settled knowledge
-
-#### Scenario: Answer Agent receives approved notes
-- **WHEN** the Answer Agent is called in P0
-- **THEN** it receives approved Notes as evidence
-- **AND** it must not use model background knowledge as project knowledge
-
-#### Scenario: Answer Agent receives unconfirmed materials
-- **WHEN** the Answer Agent is called with fallback materials
-- **THEN** it must keep claims from those materials explicitly unconfirmed
-- **AND** must not present them as approved knowledge
-
-
-### Requirement: Retrieval Uses Main Index As Entry Point
-The system SHALL use the main index as the entry point for approved-note retrieval in P0 and P3 hybrid retrieval. P0 retrieval searches keyword and metadata index entries. When hybrid retrieval is explicitly enabled, retrieval MAY also use vector references reachable from approved Index Entries.
-
-#### Scenario: User asks a question
-- **WHEN** the answer workflow begins retrieval
-- **THEN** it searches keyword and metadata index entries
-- **AND** loads approved notes referenced by matching entries
-
-#### Scenario: Top-k retrieval is requested
-- **WHEN** the user passes `--top-k <n>`
-- **THEN** the answer workflow returns at most that many matching approved Notes to the Answer Agent
-
-#### Scenario: Hybrid retrieval is enabled
-- **WHEN** answer workflow runs in hybrid retrieval mode
-- **THEN** retrieval combines keyword, metadata, and available vector signals from approved Index Entries
-- **AND** still returns at most the requested top-k approved Notes to the Answer Agent
-
-
 ### Requirement: Answer Evidence Remains Traceable
 The system SHALL keep answer evidence traceable to approved Notes. When approved Notes contain processed segment evidence locators, answer traceability MUST remain rooted in those approved Notes and MUST NOT require answer workflow to load raw Sources, draft understanding, or discussion-stage material. Hybrid retrieval explanations and related expansion metadata MAY be returned for debugging, but MUST NOT replace approved Note evidence. Fallback evidence MUST be traceable to Source ids and structured material references.
 
@@ -115,24 +55,3 @@ The system SHALL keep answer evidence traceable to approved Notes. When approved
 - **WHEN** answer workflow includes fallback evidence
 - **THEN** each fallback item includes a Source trace reference
 - **AND** the answer distinguishes it from approved Note evidence
-
-
-### Requirement: Answer Agent Uses Grounded Prompt
-The system SHALL use `answer-grounded.md` when generating grounded answers from approved Notes.
-
-#### Scenario: Answer Agent is called
-- **WHEN** approved Note evidence is available for a question
-- **THEN** the workflow calls Answer Agent
-- **AND** the Agent uses `src/agents/prompts/answer-grounded.md`
-
-### Requirement: Answer CLI Supports JSON And Top-K
-The system SHALL expose approved-note answers through `ai-knowledge answer "<question>"` with `--top-k` and `--json` options.
-
-#### Scenario: User requests JSON answer
-- **WHEN** the user runs `ai-knowledge answer "<question>" --json`
-- **THEN** the CLI returns the answer workflow result as JSON
-
-#### Scenario: User requests top-k
-- **WHEN** the user runs `ai-knowledge answer "<question>" --top-k 5`
-- **THEN** the retrieval step uses 5 as the maximum number of approved Notes
-

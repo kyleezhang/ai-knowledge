@@ -258,7 +258,36 @@ describe('IndexEntry domain', () => {
         ],
         debug: ['vector unavailable: no vector_ref'],
       }),
-    ).toMatchObject({ note_id: 'note_20260514_test-note', final_score: 0.9 });
+    ).toMatchObject({
+      note_id: 'note_20260514_test-note',
+      final_score: 0.9,
+      retrieval_role: 'direct',
+    });
+  });
+
+  it('parses related hybrid retrieval results with expansion metadata', () => {
+    expect(
+      parse_hybrid_retrieval_result({
+        note_id: 'note_20260514_related-note',
+        final_score: 0,
+        retrieval_role: 'related',
+        related_via_note_id: 'note_20260514_direct-note',
+        related_via_title: 'Direct Note',
+        signals: [
+          {
+            type: 'metadata',
+            score: 1,
+            normalized_score: 0,
+            explanation: 'related via note_20260514_direct-note',
+          },
+        ],
+        debug: [],
+      }),
+    ).toMatchObject({
+      note_id: 'note_20260514_related-note',
+      retrieval_role: 'related',
+      related_via_note_id: 'note_20260514_direct-note',
+    });
   });
 
   it('rejects invalid hybrid retrieval results', () => {
@@ -300,6 +329,39 @@ describe('IndexEntry domain', () => {
         debug: [],
       }),
     ).toThrow('hybrid retrieval result must have signals');
+    expect(() =>
+      parse_hybrid_retrieval_result({
+        note_id: 'note_20260514_related-note',
+        final_score: 0,
+        retrieval_role: 'related',
+        signals: [
+          {
+            type: 'metadata',
+            score: 1,
+            normalized_score: 0,
+            explanation: 'related',
+          },
+        ],
+        debug: [],
+      }),
+    ).toThrow('related retrieval result must have related_via_note_id');
+    expect(() =>
+      parse_hybrid_retrieval_result({
+        note_id: 'note_20260514_direct-note',
+        final_score: 1,
+        retrieval_role: 'direct',
+        related_via_note_id: 'note_20260514_other-note',
+        signals: [
+          {
+            type: 'keyword',
+            score: 1,
+            normalized_score: 1,
+            explanation: 'matched',
+          },
+        ],
+        debug: [],
+      }),
+    ).toThrow('direct retrieval result must not have related_via_note_id');
   });
 
   it('parses fully labeled unconfirmed evidence', () => {

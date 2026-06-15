@@ -14,12 +14,15 @@ import type { DiscussionAgentInput } from '../../src/agents/discussion-agent.js'
 import type { NoteAgentInput } from '../../src/agents/note-agent.js';
 import type { UnderstandAgentInput } from '../../src/agents/understand-agent.js';
 import { create_program, type CliIo } from '../../src/cli/index.js';
+import { build_index_entry } from '../../src/indexing/build-index-entry.js';
+import { render_note_markdown } from '../../src/notes/render-markdown.js';
 import { read_discussion_messages } from '../../src/storage/discussion-log.js';
 import {
   get_index_entry,
   get_vector_index,
+  save_index_entry,
 } from '../../src/storage/index-repo.js';
-import { get_note } from '../../src/storage/note-repo.js';
+import { create_note, get_note } from '../../src/storage/note-repo.js';
 import {
   index_entry_path,
   knowledge_dir,
@@ -35,6 +38,7 @@ import {
   write_markdown_fixture,
 } from '../source-test-helpers.js';
 import { FakeEmbeddingProvider } from '../fake-embedding-provider.js';
+import { create_test_note } from '../note-test-helpers.js';
 
 const acceptance_fixture_file = new URL(
   '../p0-end-to-end-acceptance.fixture.md',
@@ -251,6 +255,13 @@ describe('P0 end-to-end acceptance CLI', () => {
       }
     }
 
+    const related_note = build_related_acceptance_note(note_id);
+    await create_note(
+      { note: related_note, markdown: render_note_markdown(related_note) },
+      { cwd },
+    );
+    await save_index_entry(build_index_entry(related_note), { cwd });
+
     let answer_input: AnswerAgentInput | undefined;
     const answer_harness = create_cli_harness(cwd, {
       answer: async ({ agent_input }) => {
@@ -276,6 +287,55 @@ describe('P0 end-to-end acceptance CLI', () => {
     expect(answer_output).toContain('P0 keyword retrieval only.');
     expect(answer_input?.approved_notes.map((note) => note.id)).toEqual([
       note_id,
+    ]);
+
+    await save_index_entry(
+      {
+        ...(await get_index_entry(note_id, { cwd })),
+        related_note_ids: [related_note.id],
+      },
+      { cwd },
+    );
+
+    const default_json_harness = create_cli_harness(cwd, {
+      answer: async ({ agent_input }) => ({
+        conclusion: 'Default JSON includes related context.',
+        cited_notes: agent_input.approved_notes.map((note) => ({
+          note_id: note.id,
+          title: note.title,
+          relevant_points: note.conclusions,
+        })),
+        unconfirmed_materials: [],
+        limitations: [],
+      }),
+    });
+    await default_json_harness.run(['answer', acceptance_question, '--json']);
+    const default_answer_json = JSON.parse(default_json_harness.stdout[0]) as {
+      ok: true;
+      data: {
+        matched_note_ids: string[];
+        retrieval_results: Array<{
+          note_id: string;
+          retrieval_role: 'direct' | 'related';
+          related_via_note_id?: string;
+          debug: string[];
+        }>;
+      };
+    };
+    expect(default_answer_json.data.matched_note_ids).toEqual([
+      note_id,
+      related_note.id,
+    ]);
+    expect(default_answer_json.data.retrieval_results).toEqual([
+      expect.objectContaining({
+        note_id,
+        retrieval_role: 'direct',
+      }),
+      expect.objectContaining({
+        note_id: related_note.id,
+        retrieval_role: 'related',
+        related_via_note_id: note_id,
+      }),
     ]);
 
     const hybrid_answer_harness = create_cli_harness(cwd, {
@@ -305,16 +365,35 @@ describe('P0 end-to-end acceptance CLI', () => {
         ok: true;
         data: {
           matched_note_ids: string[];
-          retrieval_results: Array<{ note_id: string; debug: string[] }>;
+          retrieval_results: Array<{
+            note_id: string;
+            retrieval_role: 'direct' | 'related';
+            related_via_note_id?: string;
+            debug: string[];
+          }>;
         };
       };
-      expect(hybrid_answer_json.data.matched_note_ids).toEqual([note_id]);
-      expect(hybrid_answer_json.data.retrieval_results[0].note_id).toBe(
+      expect(hybrid_answer_json.data.matched_note_ids).toEqual([
         note_id,
-      );
+        related_note.id,
+      ]);
+      expect(hybrid_answer_json.data.retrieval_results).toEqual([
+        expect.objectContaining({
+          note_id,
+          retrieval_role: 'direct',
+        }),
+        expect.objectContaining({
+          note_id: related_note.id,
+          retrieval_role: 'related',
+          related_via_note_id: note_id,
+        }),
+      ]);
       expect(
         hybrid_answer_json.data.retrieval_results[0].debug.join('\n'),
       ).toContain('Missing API key environment variable: VOYAGE_API_KEY');
+      expect(
+        hybrid_answer_json.data.retrieval_results[1].debug.join('\n'),
+      ).toContain(`related via ${note_id}`);
     } finally {
       if (previous_hybrid_voyage_key === undefined) {
         delete process.env.VOYAGE_API_KEY;
@@ -473,6 +552,28 @@ function build_acceptance_note_candidate(
     related_note_ids: [],
     source_refs: agent_input.source_refs,
   };
+}
+
+function build_related_acceptance_note(parent_note_id: string) {
+  return create_test_note({
+    id: 'note_20260514_related-acceptance-context',
+    root_note_id: 'note_20260514_related-acceptance-context',
+    title: 'Supplemental Concept',
+    slug: 'supplemental-concept',
+    status: 'approved',
+    approved_at: '2026-05-14T00:00:00.000Z',
+    conclusions: ['Supplemental material can support direct answers.'],
+    why_it_matters: ['It keeps supplementary material confirmed and explicit.'],
+    current_understanding: 'Supplementary material follows direct matches.',
+    related_note_ids: [parent_note_id],
+    quality_checks: {
+      status: 'passed',
+      template_complete: true,
+      source_links_present: true,
+      empty_sections: [],
+      last_checked_at: '2026-05-14T00:00:00.000Z',
+    },
+  });
 }
 
 async function* async_iter(items: string[]): AsyncIterable<string> {

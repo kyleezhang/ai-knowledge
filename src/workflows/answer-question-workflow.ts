@@ -74,6 +74,7 @@ export async function answer_question_workflow(
             top_k,
             storage_config: input.storage_config,
             cwd: input.cwd,
+            include_debug: input.include_retrieval_debug,
           });
 
     const unconfirmed_materials =
@@ -123,7 +124,8 @@ export async function answer_question_workflow(
         matched_note_ids: matches.map((item) => item.note.id),
         retrieval_results: matches
           .filter(
-            (item): item is HybridRetrievedApprovedNote => 'retrieval' in item,
+            (item): item is HybridRetrievedApprovedNote =>
+              item.retrieval !== undefined,
           )
           .map((item) => item.retrieval),
         unconfirmed_materials,
