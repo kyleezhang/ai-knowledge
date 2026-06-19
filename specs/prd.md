@@ -251,13 +251,16 @@ MVP 目标是验证最关键的产品闭环，而不是一次性覆盖所有能�
 
 ### 13.1 MVP 包含
 
-- 自动采集 GitHub Trending 和 Hacker News 的部分 AI 技术内容
-- 自动采集内容先进入候选池，再由用户选择是否转为 `Source`
-- 用户导入 Markdown、PDF 文件
+MVP 产品愿景包含主动学习闭环、候选池和多种输入来源；当前实现按阶段治理：P0 Stable 验证 Markdown 主动学习闭环，P1/P2/P3 作为 Beta 或 Experimental 扩展逐步产品化。
+
+- P0 Stable：用户导入 Markdown 文件，完成 `Source -> draft_understanding -> discussion -> approved Note -> index -> answer` 闭环
+- P1 Beta：用户显式导入 PDF、公开 URL、飞书单文档，并复用 P0 下游学习闭环
+- P2 Experimental：自动采集 GitHub Trending 和 Hacker News 的部分 AI 技术内容，先进入候选池，再由用户选择是否转为 `Source`
+- P3 Experimental：在 approved Note 主索引之上提供显式 vector indexing 与 hybrid retrieval
 - Agent 自动生成初步理解并主动与用户讨论
 - 用户确认后先生成 `Note JSON`，再导出正式 Markdown 笔记
 - Markdown 成稿后执行规则型 QA / lint
-- 基于已生成且 `approved` 的笔记进行后续问答
+- 基于已生成且 `approved` 的笔记进行后续问答；默认 answer 只基于已确认笔记，未确认材料必须显式 fallback 并标注
 
 ### 13.2 MVP 暂不包含
 

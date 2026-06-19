@@ -1,64 +1,115 @@
-# 本地真实 LLM Smoke Test
+# P0 Stable 端到端验收与本地真实 LLM Smoke
 
 ## 目的
 
-这条 smoke test 是唯一维护的真实 provider smoke 入口，用真实 `DEEPSEEK_API_KEY` 与 `VOYAGE_API_KEY` 在本地显式跑一遍 Markdown、PDF、URL 三类输入的关键主链路，并额外验证真实 embedding provider 下的 `note index --vector` 与 `answer --hybrid`，用来补充 fake-agent 验收覆盖不到的真实 provider / prompt / JSON 协议问题。
+本文件只定义 **P0 Stable** 的验收边界：Markdown 主动学习闭环与默认 approved-Note answer。它用于确认最小稳定主链路仍然成立，不要求 PDF、URL、飞书文档、Candidate、vector、hybrid 或 fallback-unconfirmed 能力。
 
-## 重要说明
+P0 Stable 主链路：
 
-- 该检查 **仅本地显式触发**，不会并入默认 `pnpm test`。
-- 该检查会消耗 token，并可能受 provider 波动影响。
-- 该检查 **不要求逐字稳定输出**，只校验关键状态与关键产物。
-- 未配置 `DEEPSEEK_API_KEY` 或 `VOYAGE_API_KEY` 时，脚本默认跳过并返回非阻塞结果。
+```text
+Markdown -> Source -> Processed Artifacts -> Draft Understanding
+-> Discussion Summary -> Approval -> Note JSON -> Note Markdown
+-> QA -> Approved Note -> Index Entry -> default Answer
+```
 
-## 运行方式
+## 阶段边界
+
+- P0 Stable：Markdown 主动导入、Source processing、draft understanding、discussion approval、Note compose/render/lint/approve/index、默认 keyword / metadata answer。
+- P1 Beta：PDF、显式公开 URL、飞书单文档导入；见 `tests/extended-capabilities.smoke.md` 和 `tests/p1-end-to-end-acceptance.manual.md`。
+- P2 Experimental：Candidate 候选池与本地 schedule / task automation；见 `tests/extended-capabilities.smoke.md` 和 `tests/candidate-pool-end-to-end-acceptance.manual.md`。
+- P3 Experimental：`note index --vector` 与 `answer --hybrid`；见 `tests/extended-capabilities.smoke.md`。
+
+扩展能力不能放宽 P0 gates：没有 processed artifacts 不得生成 `draft_understanding`；没有讨论收敛和用户确认不得生成 formal Note；没有 QA / lint passed 不得 approve Note；没有 approved Note 不得进入主 Index。
+
+## 默认自动化验收
+
+默认自动化验收使用 fake agents / fake REPL，不依赖真实 LLM、真实公网或 provider API key：
+
+```bash
+pnpm test -- tests/cli/p0-acceptance-cli.test.ts
+```
+
+关键检查项：
+
+- 从空 `knowledge/` 导入 `tests/p0-end-to-end-acceptance.fixture.md`。
+- 生成 `processed/clean_text.md`、`processed/segments.json`、`processed/metadata.json`。
+- 生成 `draft_understanding` 与 `discussion_summary`。
+- 在 source approval 前拒绝 `note compose`。
+- 生成 `note.json` 与 `note.md`。
+- 在 `note lint` passed 前拒绝 `note approve`。
+- approved Note 才能创建主 index entry。
+- 默认 `answer` 只引用 approved Notes；无命中时报告没有相关已确认知识。
+
+## 人工 P0 CLI 验收步骤
+
+1. 准备临时目录：
+
+   ```bash
+   WORKDIR="$(mktemp -d)"
+   cd "$WORKDIR"
+   ```
+
+2. 初始化本地知识目录：
+
+   ```bash
+   ai-knowledge init
+   ```
+
+3. 导入 Markdown fixture：
+
+   ```bash
+   ai-knowledge source ingest markdown /path/to/tests/p0-end-to-end-acceptance.fixture.md
+   ```
+
+   记录输出中的 `<source_id>`。
+
+4. 处理并生成初步理解：
+
+   ```bash
+   ai-knowledge source process <source_id>
+   ai-knowledge source understand <source_id>
+   ```
+
+5. 启动讨论并确认：
+
+   ```bash
+   ai-knowledge source discuss <source_id>
+   ```
+
+   至少进行一轮讨论，检查 `/summary`、`/draft`、`/status`，收敛后通过 `/approve` 或退出后执行：
+
+   ```bash
+   ai-knowledge source approve <source_id>
+   ```
+
+6. 生成、QA、批准并索引 Note：
+
+   ```bash
+   ai-knowledge note compose <source_id>
+   ai-knowledge note lint <note_id>
+   ai-knowledge note approve <note_id>
+   ai-knowledge note index <note_id>
+   ```
+
+7. 默认提问：
+
+   ```bash
+   ai-knowledge answer "agent memory boundary approved notes"
+   ```
+
+## 真实 LLM smoke 入口
+
+真实 provider smoke 只维护一个入口：
 
 ```bash
 pnpm test:smoke
 ```
 
-如需保留临时工作目录以便排查：
+该入口是 **本地显式触发**，不会并入默认 `pnpm test`。它可能覆盖 P0 Stable 与 P1/P2/P3 扩展能力；扩展覆盖必须在输出或文档中标明 phase/stability label。运行前确认：
 
-```bash
-node scripts/local-llm-smoke.mjs --keep-workdir
-```
+- shell 中已配置所需 provider API key，例如 `DEEPSEEK_API_KEY`；如果执行 vector/hybrid smoke，还需要 `VOYAGE_API_KEY`。
+- 不要把 API key 写入仓库文件。
+- 该检查会消耗 token，并可能受 provider 波动影响。
+- 该检查不要求逐字稳定输出，只校验状态推进、schema 校验、QA gate、approved Note 与 answer grounding 是否成立。
 
-## 前置条件
-
-- shell 环境中已配置 `DEEPSEEK_API_KEY`
-- shell 环境中已配置 `VOYAGE_API_KEY`
-- 不要把 API key 写入仓库文件
-- 本地环境可访问 deepseek provider 与 Voyage embedding provider
-
-## 验证范围
-
-固定输入：
-
-- Markdown：`tests/p0-end-to-end-acceptance.fixture.md`
-- PDF：smoke 内部生成稳定小型 PDF Source，并使用 deterministic PDF processing input 降低 parser 波动
-- URL：smoke 内部使用 deterministic HTML fixture，避免真实公网波动
-
-每类输入都会跑关键主链路：
-
-```text
-source ingest -> process -> understand -> discuss -> approve -> note compose -> lint -> approve -> index -> vector index -> hybrid answer
-```
-
-关键检查项：
-
-- Markdown / PDF / URL 三条 path 都完成到 approved Note、index entry、vector index 与 hybrid answer
-- `processed/clean_text.md` / `segments.json` / `metadata.json` 已生成
-- PDF / URL path 验证 processed evidence locator
-- URL path 验证 frozen HTML snapshot
-- `draft_understanding` 非空
-- Source 可推进到 `approved_for_note`
-- Note 可推进到 `draft` / `approved`
-- answer 输出包含 `## 综合结论`
-- 输出每条 path 的 `source_id`、`note_id` 与 `answer_conclusion`
-
-## 非目标
-
-- 不替代默认 fake-agent E2E，默认 `pnpm test` 仍不依赖真实 LLM
-- 不做逐字输出比较
-- 不作为 CI required check
-- 不验证真实公网稳定性或复杂 PDF parser 边界
+未配置所需 provider API key 时，smoke 应明确报告 skipped，不得伪装成 passed。

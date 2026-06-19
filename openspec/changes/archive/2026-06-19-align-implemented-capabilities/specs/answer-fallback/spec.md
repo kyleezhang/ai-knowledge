@@ -1,9 +1,5 @@
-# Answer Fallback Specification
+## MODIFIED Requirements
 
-## Purpose
-
-This capability defines how answer workflow can explicitly use labeled unconfirmed materials as secondary evidence.
-## Requirements
 ### Requirement: Fallback Requires Explicit Opt In
 The system SHALL use unconfirmed materials for answers only when fallback is explicitly enabled through `--fallback-unconfirmed` or an equivalent explicit workflow option. Default answer behavior MUST continue to use approved Notes only.
 
@@ -78,4 +74,3 @@ The system SHALL keep fallback evidence separate from approved Note evidence in 
 - **THEN** the answer output identifies those materials separately from approved Notes
 - **AND** includes their unconfirmed limitations
 - **AND** does not count them as cited approved Notes
-

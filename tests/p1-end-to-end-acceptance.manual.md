@@ -1,4 +1,11 @@
-# P1 PDF / URL 端到端人工验收步骤
+# P1 Beta PDF / URL 端到端人工验收步骤
+
+## 阶段标签
+
+- Phase: P1
+- Stability: Beta
+- Scope: PDF 与显式公开 URL 输入扩展；默认自动化验收不依赖真实 LLM 或真实公网。
+- Boundary: P1 输入扩展只创建 / 推进 Source，不放宽 Source -> Discussion -> Note -> QA -> Index gates。
 
 ## 前置条件
 
@@ -179,7 +186,7 @@
 
 ## 真实 LLM smoke 边界
 
-真实 LLM smoke 只维护一个入口：`pnpm test:smoke`。该入口会在一次运行中覆盖 Markdown、PDF、URL 三类输入的关键链路；不再分别维护 P0 smoke 与 P1 smoke。
+真实 LLM smoke 只维护���个入口：`pnpm test:smoke`。该入口可能在一次运行中覆盖 P0 Stable Markdown 与 P1 Beta PDF/URL 等路径；不再分别维护 P0 smoke 与 P1 smoke。扩展路径应在输出或文档中标明 phase/stability label，避免被误解为 P0 Stable 必需范围。
 
 该检查仍然是本地显式触发，不并入默认 `pnpm test` 或 CI gate。运行前确认：
 

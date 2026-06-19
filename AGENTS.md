@@ -33,9 +33,21 @@ If implementation needs conflict with specs, update the spec first.
 - Vitest for tests
 - ESLint + Prettier for quality
 - `snake_case` for JSON fields and core TypeScript object fields
-- P0 supports Markdown only
-- P0 retrieval is keyword / metadata only
-- PDF is P1, auto-collection is P2, vector retrieval is P3
+- P0 Stable supports Markdown active import and default approved-Note keyword / metadata retrieval only
+- P1 Beta covers PDF, explicit public URL, and single Feishu document ingestion
+- P2 Experimental covers Candidate auto-collection, scoring, selection, and local scheduling
+- P3 Experimental covers vector indexing and hybrid retrieval
+
+## Capability Phase Map
+
+| Phase | Stability    | Capabilities                                                                                                                                                                       |
+| ----- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P0    | Stable       | Markdown active import, Source processing, draft understanding, discussion approval, Note compose/render/lint/approve/index, default keyword / metadata answer from approved Notes |
+| P1    | Beta         | PDF ingestion, explicit public URL ingestion, single Feishu document ingestion                                                                                                     |
+| P2    | Experimental | Candidate collection from GitHub Trending / Hacker News, Candidate scoring/selection, local schedules and task automation                                                          |
+| P3    | Experimental | `note index --vector`, vector index metadata, `answer --hybrid`                                                                                                                    |
+
+Beta and Experimental capabilities must not relax the core gates below. They still flow through `Source -> Discussion -> Note -> QA -> Index`, and default `answer` remains grounded in approved Notes only. Unconfirmed fallback requires explicit opt-in and clear labeling.
 
 ## Core Object Rules
 
@@ -120,7 +132,11 @@ Unless specs are updated first, do not:
 - Store API keys, tokens, cookies, or credentials in repo files.
 - Delete or rewrite raw imported materials to hide processing errors.
 
-## P0 Commands
+## CLI Capability Labels
+
+P0 Stable commands are the required baseline. P1/P2/P3 commands may be present in the CLI, but must be documented and treated as Beta or Experimental rather than as P0 gates.
+
+## P0 Stable Commands
 
 ```bash
 ai-knowledge source ingest markdown <file>
@@ -141,6 +157,31 @@ ai-knowledge note show <note_id>
 
 ai-knowledge answer "<question>"
 ```
+
+## Extended Commands
+
+```bash
+# P1 Beta
+ai-knowledge source ingest pdf <file>
+ai-knowledge source ingest url <public_url>
+ai-knowledge source ingest feishu-doc <doc_url_or_token>
+
+# P2 Experimental
+ai-knowledge candidate collect github-trending
+ai-knowledge candidate collect hacker-news
+ai-knowledge candidate score <candidate_id>
+ai-knowledge candidate select <candidate_id>
+ai-knowledge candidate list
+ai-knowledge candidate show <candidate_id>
+ai-knowledge schedule ...
+ai-knowledge task ...
+
+# P3 Experimental
+ai-knowledge note index <note_id> --vector
+ai-knowledge answer "<question>" --hybrid
+```
+
+`ai-knowledge answer "<question>" --fallback-unconfirmed` is an explicit non-default fallback path. It may use structured unconfirmed materials only as labeled secondary evidence and must not mutate Candidate, Source, Note, or Index state.
 
 ## Testing
 

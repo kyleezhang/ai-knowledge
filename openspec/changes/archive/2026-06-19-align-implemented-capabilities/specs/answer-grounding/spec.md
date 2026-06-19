@@ -1,9 +1,5 @@
-# Answer Grounding Specification
+## MODIFIED Requirements
 
-## Purpose
-
-This capability defines how the system answers user questions using approved knowledge first while preserving uncertainty about unapproved material.
-## Requirements
 ### Requirement: Answers Prefer Approved Notes
 The system SHALL prefer approved notes as the primary evidence source for answers. Default answer workflow MUST use only approved Notes loaded through approved Index Entries. When direct retrieval matches approved Notes that contain confirmed `related_note_ids`, answer workflow MAY load one-hop related approved Notes as supplementary confirmed context. When P3 hybrid retrieval is explicitly enabled, answer workflow MUST still use hybrid results only to locate approved Notes and MUST ground answers in the loaded `note.json` records. When unconfirmed fallback is explicitly enabled through `--fallback-unconfirmed` or an equivalent explicit workflow option, approved Notes remain primary evidence and unconfirmed materials may only be used as labeled secondary evidence.
 
@@ -116,23 +112,3 @@ The system SHALL keep answer evidence traceable to approved Notes. When approved
 - **THEN** each fallback item includes a Source trace reference
 - **AND** the answer distinguishes it from approved Note evidence
 - **AND** the answer states that the fallback item has not become approved knowledge
-
-### Requirement: Answer Agent Uses Grounded Prompt
-The system SHALL use `answer-grounded.md` when generating grounded answers from approved Notes.
-
-#### Scenario: Answer Agent is called
-- **WHEN** approved Note evidence is available for a question
-- **THEN** the workflow calls Answer Agent
-- **AND** the Agent uses `src/agents/prompts/answer-grounded.md`
-
-### Requirement: Answer CLI Supports JSON And Top-K
-The system SHALL expose approved-note answers through `ai-knowledge answer "<question>"` with `--top-k` and `--json` options.
-
-#### Scenario: User requests JSON answer
-- **WHEN** the user runs `ai-knowledge answer "<question>" --json`
-- **THEN** the CLI returns the answer workflow result as JSON
-
-#### Scenario: User requests top-k
-- **WHEN** the user runs `ai-knowledge answer "<question>" --top-k 5`
-- **THEN** the retrieval step uses 5 as the maximum number of approved Notes
-

@@ -143,16 +143,16 @@ export function create_program(
 
   const candidate = program
     .command('candidate')
-    .description('Manage Candidates.');
+    .description('Manage Candidates. [P2 Experimental]');
 
   const candidate_collect = candidate
     .command('collect')
-    .description('Collect Candidates from external sources.');
+    .description('Collect Candidates from external sources. [P2 Experimental]');
 
   candidate_collect
     .command('github-trending')
     .option('--json', 'Output JSON')
-    .description('Collect GitHub Trending Candidates.')
+    .description('Collect GitHub Trending Candidates. [P2 Experimental]')
     .action(async (options: { json?: boolean }) => {
       const result = await collect_candidates_workflow({
         provider: 'github-trending',
@@ -176,7 +176,7 @@ export function create_program(
   candidate_collect
     .command('hacker-news')
     .option('--json', 'Output JSON')
-    .description('Collect Hacker News Candidates.')
+    .description('Collect Hacker News Candidates. [P2 Experimental]')
     .action(async (options: { json?: boolean }) => {
       const result = await collect_candidates_workflow({
         provider: 'hacker-news',
@@ -201,7 +201,9 @@ export function create_program(
     .command('select')
     .argument('<candidate_id>')
     .option('--json', 'Output JSON')
-    .description('Select a recommended Candidate and convert it to a Source.')
+    .description(
+      'Select a recommended Candidate and convert it to a Source. [P2 Experimental]',
+    )
     .action(async (candidate_id: string, options: { json?: boolean }) => {
       const result = await select_candidate_workflow({
         candidate_id,
@@ -224,7 +226,7 @@ export function create_program(
     .command('score')
     .argument('<candidate_id>')
     .option('--json', 'Output JSON')
-    .description('Score and recommend a Candidate.')
+    .description('Score and recommend a Candidate. [P2 Experimental]')
     .action(async (candidate_id: string, options: { json?: boolean }) => {
       const result = await score_candidate_workflow({
         candidate_id,
@@ -245,7 +247,7 @@ export function create_program(
     .command('list')
     .option('--status <status>', 'Filter by Candidate status')
     .option('--json', 'Output JSON')
-    .description('List Candidates.')
+    .description('List Candidates. [P2 Experimental]')
     .action(async (options: { status?: string; json?: boolean }) => {
       const result = await list_candidates_workflow({
         status: options.status as CandidateStatus | undefined,
@@ -268,7 +270,7 @@ export function create_program(
     .command('show')
     .argument('<candidate_id>')
     .option('--json', 'Output JSON')
-    .description('Show Candidate summary.')
+    .description('Show Candidate summary. [P2 Experimental]')
     .action(async (candidate_id: string, options: { json?: boolean }) => {
       const result = await show_candidate_workflow({
         candidate_id,
@@ -289,13 +291,16 @@ export function create_program(
     .command('answer')
     .argument('<question>')
     .option('--top-k <n>', 'Maximum approved Notes to retrieve')
-    .option('--hybrid', 'Use hybrid keyword metadata vector retrieval')
+    .option(
+      '--hybrid',
+      'Use hybrid keyword metadata vector retrieval [P3 Experimental]',
+    )
     .option(
       '--fallback-unconfirmed',
-      'Use explicitly labeled unconfirmed materials when approved Notes do not match',
+      'Explicitly use labeled unconfirmed secondary evidence when approved Notes do not match',
     )
     .option('--json', 'Output JSON')
-    .description('Answer a question from approved Notes.')
+    .description('Answer a question from approved Notes. [P0 Stable default]')
     .action(
       async (
         question: string,
@@ -333,11 +338,11 @@ export function create_program(
 
   const schedule = program
     .command('schedule')
-    .description('Manage local automation schedules.');
+    .description('Manage local automation schedules. [P2 Experimental]');
 
   const schedule_create = schedule
     .command('create')
-    .description('Create local automation schedules.');
+    .description('Create local automation schedules. [P2 Experimental]');
 
   schedule_create
     .command('collection')
@@ -345,7 +350,7 @@ export function create_program(
     .option('--interval-minutes <n>', 'Run every N minutes')
     .option('--daily-time <HH:mm>', 'Run daily at HH:mm UTC')
     .option('--json', 'Output JSON')
-    .description('Create a scheduled Candidate collection.')
+    .description('Create a scheduled Candidate collection. [P2 Experimental]')
     .action(
       async (
         provider: CandidateCollectorProvider,
@@ -382,7 +387,7 @@ export function create_program(
     .option('--interval-minutes <n>', 'Run every N minutes')
     .option('--daily-time <HH:mm>', 'Run daily at HH:mm UTC')
     .option('--json', 'Output JSON')
-    .description('Create a safe auto-advancement schedule.')
+    .description('Create a safe auto-advancement schedule. [P2 Experimental]')
     .action(
       async (options: {
         intervalMinutes?: string;
@@ -416,7 +421,7 @@ export function create_program(
   schedule
     .command('list')
     .option('--json', 'Output JSON')
-    .description('List local automation schedules.')
+    .description('List local automation schedules. [P2 Experimental]')
     .action(async (options: { json?: boolean }) => {
       const result = await list_schedules_workflow({ cwd: input.cwd });
       if (options.json) {
@@ -439,7 +444,7 @@ export function create_program(
     .command('show')
     .argument('<schedule_id>')
     .option('--json', 'Output JSON')
-    .description('Show a local automation schedule.')
+    .description('Show a local automation schedule. [P2 Experimental]')
     .action(async (schedule_id: string, options: { json?: boolean }) => {
       const result = await show_schedule_workflow({
         cwd: input.cwd,
@@ -459,7 +464,7 @@ export function create_program(
     .command('enable')
     .argument('<schedule_id>')
     .option('--json', 'Output JSON')
-    .description('Enable a local automation schedule.')
+    .description('Enable a local automation schedule. [P2 Experimental]')
     .action(async (schedule_id: string, options: { json?: boolean }) => {
       const result = await enable_schedule_workflow({
         cwd: input.cwd,
@@ -480,7 +485,7 @@ export function create_program(
     .command('disable')
     .argument('<schedule_id>')
     .option('--json', 'Output JSON')
-    .description('Disable a local automation schedule.')
+    .description('Disable a local automation schedule. [P2 Experimental]')
     .action(async (schedule_id: string, options: { json?: boolean }) => {
       const result = await disable_schedule_workflow({
         cwd: input.cwd,
@@ -500,7 +505,7 @@ export function create_program(
   schedule
     .command('tick')
     .option('--json', 'Output JSON')
-    .description('Run one scheduler tick.')
+    .description('Run one scheduler tick. [P2 Experimental]')
     .action(async (options: { json?: boolean }) => {
       const result = await scheduler_tick_workflow({
         cwd: input.cwd,
@@ -519,14 +524,16 @@ export function create_program(
       print_schedule_tick_summary(result.data.summary, io);
     });
 
-  const task = program.command('task').description('Manage local async tasks.');
+  const task = program
+    .command('task')
+    .description('Manage local async tasks. [P2 Experimental]');
 
   task
     .command('enqueue')
     .argument('<type>')
     .argument('<target_id>')
     .option('--json', 'Output JSON')
-    .description('Enqueue a local async task.')
+    .description('Enqueue a local async task. [P2 Experimental]')
     .action(
       async (type: string, target_id: string, options: { json?: boolean }) => {
         const payload = build_task_payload(type, target_id);
@@ -551,7 +558,7 @@ export function create_program(
     .command('run')
     .argument('[task_id]')
     .option('--json', 'Output JSON')
-    .description('Run one local async task.')
+    .description('Run one local async task. [P2 Experimental]')
     .action(
       async (task_id: string | undefined, options: { json?: boolean }) => {
         const result = await run_task_workflow({
@@ -580,7 +587,9 @@ export function create_program(
       'Milliseconds before a task lease is stale',
     )
     .option('--json', 'Output JSON')
-    .description('Run a local task scheduling daemon in the foreground.')
+    .description(
+      'Run a local task scheduling daemon in the foreground. [P2 Experimental]',
+    )
     .action(
       async (options: {
         maxRuns?: string;
@@ -624,7 +633,7 @@ export function create_program(
     .command('retry')
     .argument('<task_id>')
     .option('--json', 'Output JSON')
-    .description('Retry a retryable local async task.')
+    .description('Retry a retryable local async task. [P2 Experimental]')
     .action(async (task_id: string, options: { json?: boolean }) => {
       const result = await retry_task_workflow({ cwd: input.cwd, task_id });
       if (options.json) {
@@ -640,7 +649,7 @@ export function create_program(
   task
     .command('list')
     .option('--json', 'Output JSON')
-    .description('List local async tasks.')
+    .description('List local async tasks. [P2 Experimental]')
     .action(async (options: { json?: boolean }) => {
       const result = await list_tasks_workflow({ cwd: input.cwd });
       if (options.json) {
@@ -659,7 +668,7 @@ export function create_program(
     .command('show')
     .argument('<task_id>')
     .option('--json', 'Output JSON')
-    .description('Show a local async task.')
+    .description('Show a local async task. [P2 Experimental]')
     .action(async (task_id: string, options: { json?: boolean }) => {
       const result = await show_task_workflow({ cwd: input.cwd, task_id });
       if (options.json) {
@@ -688,7 +697,7 @@ export function create_program(
     .command('markdown')
     .argument('<file>')
     .option('--json', 'Output JSON')
-    .description('Ingest a Markdown file as a Source.')
+    .description('Ingest a Markdown file as a Source. [P0 Stable]')
     .action(async (file: string, options: { json?: boolean }) => {
       const result = await ingest_markdown_workflow({
         file_path: file,
@@ -713,7 +722,7 @@ export function create_program(
     .command('pdf')
     .argument('<file>')
     .option('--json', 'Output JSON')
-    .description('Ingest a PDF file as a Source.')
+    .description('Ingest a PDF file as a Source. [P1 Beta]')
     .action(async (file: string, options: { json?: boolean }) => {
       const result = await ingest_pdf_workflow({
         file_path: file,
@@ -738,7 +747,7 @@ export function create_program(
     .command('url')
     .argument('<public_url>')
     .option('--json', 'Output JSON')
-    .description('Ingest an explicit public URL as a Source.')
+    .description('Ingest an explicit public URL as a Source. [P1 Beta]')
     .action(async (public_url: string, options: { json?: boolean }) => {
       const result = await ingest_url_workflow({
         url: public_url,
@@ -764,7 +773,7 @@ export function create_program(
     .command('feishu-doc')
     .argument('<doc_url_or_token>')
     .option('--json', 'Output JSON')
-    .description('Ingest an explicit Feishu Doc as a Source.')
+    .description('Ingest an explicit Feishu Doc as a Source. [P1 Beta]')
     .action(async (doc_url_or_token: string, options: { json?: boolean }) => {
       const result = await ingest_feishu_doc_workflow({
         doc_url_or_token,
@@ -1089,8 +1098,10 @@ export function create_program(
     .command('index')
     .argument('<note_id>')
     .option('--json', 'Output JSON')
-    .option('--vector', 'Build vector index metadata')
-    .description('Index an approved Note.')
+    .option('--vector', 'Build vector index metadata [P3 Experimental]')
+    .description(
+      'Index an approved Note. [P0 Stable; --vector is P3 Experimental]',
+    )
     .action(
       async (
         note_id: string,
@@ -1617,11 +1628,12 @@ function print_unconfirmed_materials(
     return;
   }
   io.stdout('');
-  io.stdout('Unconfirmed materials:');
+  io.stdout('补充但未确认的材料 (unconfirmed secondary evidence):');
   for (const material of materials) {
     io.stdout(
       `- [unconfirmed:${material.material_type}] ${material.source_title} (${material.source_id}) ${material.evidence_ref}`,
     );
+    io.stdout('  confirmation_status: unconfirmed');
     io.stdout(`  excerpt: ${material.excerpt}`);
     for (const limitation of material.limitations) {
       io.stdout(`  limitation: ${limitation}`);

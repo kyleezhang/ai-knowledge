@@ -508,22 +508,32 @@ knowledge/
 
 ### 检索优先级
 
-1. 优先检索 `approved` 状态的 `Note`
-2. 如果 `Note` 信息不足，再引用相关 `discussion_summary`
-3. 如果仍不足，再回查原始资料或处理中间产物
+默认 `answer` 的主证据层只使用 `approved` 状态的 `Note`：
+
+1. 检索 `knowledge/index/` 中的 approved Index Entry
+2. 加载对应的 approved `note.json`
+3. 必要时加载通过 `related_note_ids` 确认关联的一跳 approved Note
+
+显式扩展路径：
+
+- `answer --fallback-unconfirmed` 才可使用结构化未确认材料作为 secondary evidence。
+- `answer --hybrid` 属于 P3 Experimental，只能用 keyword / metadata / vector signals 定位 approved Notes。
 
 ### 关键规则
 
-- MVP 的主检索层仅围绕 `approved` `Note` 构建
-- 检索策略应采用“关键词 / 元数据过滤 + 向量召回”混合方式
-- 回答默认应先给出综合结论，再列相关 `Note` / `Source` 指向
-- 当命中多个相关 `Note` 时，应优先做跨 `Note` 综合回答
-- 未确认讨论内容只可作为补充引用，且必须显式标注未确认
-- 当 `approved` `Note` 与 `Source` 冲突时，默认以 `approved` `Note` 为准，并提示存在冲突
+- MVP 的主检索层仅围绕 `approved` `Note` 构建。
+- P0 Stable 默认检索使用关键词 / metadata；向量召回与 hybrid retrieval 必须显式启用，并属于 P3 Experimental。
+- 回答默认应先给出综合结论，再列相关 approved `Note` 指向。
+- 当命中多个相关 `Note` 时，应优先做跨 `Note` 综合回答。
+- 默认 answer 不得使用 raw Source、`draft_understanding`、`discussion_summary`、Candidate 或 vector chunk text 作为证据。
+- 显式 fallback 只能使用 processed Source artifacts、`draft_understanding` 或 `discussion_summary` 等结构化未确认材料，且必须标注 `confirmation_status = unconfirmed`、来源、证据引用和 limitations。
+- Candidate 不得作为 answer evidence；自动采集内容必须先转为 Source，并完成 discussion、Note、QA 与 approved Index gate。
+- 当 `approved` `Note` 与 `Source` 冲突时，默认以 `approved` `Note` 为准，并提示存在冲突。
 - 回答时必须明确区分：
   - 没有相关已确认知识
   - 存在相关材料，但尚未形成已确认知识
-- 如果问题超出知识库已有范围，系统应诚实说明不足
+  - 显式 fallback 使用的未确认材料
+- 如果问题超出知识库已有范围，系统应诚实说明不足。
 
 ## 7. 两类主工作流
 

@@ -11,22 +11,22 @@ TBD - created by archiving change p0-end-to-end-acceptance. Update Purpose after
 - **THEN** 系统可以基于这份输入继续完成后续 P0 各阶段，而不需要额外手工准备数据
 
 ### Requirement: Verify the complete P0 happy path end to end
-系统 MUST 提供一条自动化端到端验收路径，串起 `ai-knowledge source ingest markdown`、`source process`、`source understand`、`source discuss`、`source approve`、`note compose`、`note lint`、`note approve`、`note index` 与 `answer`，并验证关键产物和最终输出。默认验收 MUST 使用测试注入的 fake agents / fake REPL，而不能依赖真实 LLM。除此之外，系统 MUST 提供且只维护一条本地显式触发的真实 LLM smoke test，作为非阻塞补充验证路径；该 smoke MUST 在一次运行中覆盖 P0 Markdown 与 P1 PDF/URL 的关键 happy path。
+系统 MUST 提供一条自动化端到端验收路径，串起 `ai-knowledge source ingest markdown`、`source process`、`source understand`、`source discuss`、`source approve`、`note compose`、`note lint`、`note approve`、`note index` 与默认 `answer`，并验证关键产物和最终输出。默认验收 MUST 使用测试注入的 fake agents / fake REPL，而不能依赖真实 LLM。P0 happy path MUST remain Markdown-only and approved-Note-only by default; PDF、URL、Feishu、Candidate、vector、hybrid 和 fallback coverage MUST be documented as extended capability acceptance or smoke coverage rather than P0-only coverage.
 
 #### Scenario: Complete the full P0 flow successfully
 - **WHEN** 验收在隔离的临时工作目录中依次执行完整 P0 CLI 链路
 - **THEN** 系统 MUST 生成 processed artifacts、discussion summary、`note.json`、`note.md`、approved Note、index entry，并返回引用 approved Notes 的 answer
+- **AND** 该 P0 验收 MUST NOT require PDF、URL、Feishu、Candidate、vector、hybrid 或 fallback-unconfirmed 能力
 
 #### Scenario: Default automated acceptance remains fake-agent based
 - **WHEN** 常规 `pnpm test` 或默认端到端验收运行
 - **THEN** 系统继续使用 fake agents / fake REPL 进行自动化验证
 - **AND** does not require a real LLM provider or network access
 
-#### Scenario: Local real-LLM smoke test is run explicitly
-- **WHEN** 用户显式运行本地 smoke test 入口并且 `DEEPSEEK_API_KEY` 已配置
-- **THEN** 系统 MUST 使用真实 provider 运行固定 fixture 的关键链路检查
-- **AND** 该检查不并入默认 `pnpm test` 或 CI 阻塞链路
-- **AND** 该 smoke MUST 在同一次运行中覆盖 Markdown、PDF、URL 三类输入
+#### Scenario: Extended capabilities are covered separately
+- **WHEN** 验收说明覆盖 PDF、URL、Feishu、Candidate、vector、hybrid 或 fallback-unconfirmed
+- **THEN** those checks MUST be labeled by their capability phase and stability
+- **AND** they MUST NOT be described as required P0 Stable coverage
 
 ### Requirement: Confirm note creation is blocked before discussion approval
 端到端验收 MUST 显式确认在 discussion 尚未满足确认条件前，系统不能生成正式 Note。
@@ -43,15 +43,16 @@ TBD - created by archiving change p0-end-to-end-acceptance. Update Purpose after
 - **THEN** 系统 MUST 拒绝批准该 Note，且不得生成可用于主检索的 approved Note 状态
 
 ### Requirement: Provide manual CLI acceptance guidance for HITL review
-系统 MUST 提供人工验收步骤，指导评审者手动走一遍 CLI 命令并确认 discussion REPL 与关键输出体验可接受。该说明 MUST 标明要运行的命令、关键检查点，以及通过标准。若存在真实 LLM smoke test，其说明 MUST 明确前置环境变量、成本与波动边界。
+系统 MUST 提供人工验收步骤，指导评审者手动走一遍 CLI 命令并确认 discussion REPL 与关键输出体验可接受。该说明 MUST 标明要运行的命令、关键检查点，以及通过标准。若存在真实 LLM smoke test 或扩展能力 smoke，其说明 MUST 明确前置环境变量、成本、波动边界、覆盖阶段和稳定性标签。
 
 #### Scenario: Reviewer follows manual acceptance steps
 - **WHEN** 评审者按照人工验收说明执行 fixture 导入、discussion REPL、approve、note 与 answer 命令
-- **THEN** 评审者可以明确检查 CLI 交互体验、关键状态推进、落盘产物，以及最终问答结果是否满足 P0 预期
+- **THEN** 评审者可以明确检查 CLI 交互体验、关键状态推���、落盘产物，以及最终问答结果是否满足 P0 Stable 预期
 
 #### Scenario: Reviewer runs local smoke test guidance
 - **WHEN** 评审者按照 smoke test 说明执行真实 LLM 集成检查
-- **THEN** 说明文档明确指出该检查仅本地显式触发、依赖 `DEEPSEEK_API_KEY`、会消耗 token，且不要求逐字稳定输出
+- **THEN** 说明文档明确指出该检查仅本地显式触发、依赖 provider API key、会消耗 token，且不要求逐字稳定输出
+- **AND** 说明文档 MUST label any PDF、URL、Feishu、Candidate、vector or hybrid coverage as extended capability coverage
 
 ### Requirement: Provide stable P1 PDF and URL acceptance fixtures
 系统 MUST 提供稳定的 P1 PDF 与显式公开 URL 验收 fixture，使默认自动化验收可以离线、确定性地验证 PDF/URL 输入扩展。PDF fixture MUST 可稳定产生可处理文本；URL fixture MUST 使用本地 test server、mocked fetch 或等价 deterministic public page，不依赖真实公网页面变化。
@@ -132,15 +133,16 @@ P1 PDF/URL 端到端验收 MUST 继续确认核心 workflow gates：没有 discu
 - **AND** 通过标准明确要求错误可见且 workflow gate 不被绕过
 
 ### Requirement: Maintain a single real LLM smoke entrypoint
-系统 MUST 只维护一个真实 LLM smoke entrypoint。`pnpm test:smoke` MUST 是本地真实 LLM smoke 的统一入口，并 MUST 覆盖当前版本支持的 Markdown、PDF、显式 URL 三类输入 happy path。
+系统 MUST 只维护一个真实 LLM smoke entrypoint。`pnpm test:smoke` MUST 是本地真实 LLM smoke 的统一入口，并 MAY 覆盖当前版本支持的 Markdown、PDF、显式 URL、飞书单文档、Candidate、vector 或 hybrid happy path。该 smoke MUST 明确区分 P0 Stable coverage 与 extended capability coverage，并 MUST NOT imply that extended capabilities are required for P0 Stable success.
 
 #### Scenario: User runs the unified smoke command with provider key
-- **WHEN** 用户运行 `pnpm test:smoke` 且已配置 `DEEPSEEK_API_KEY`
-- **THEN** smoke MUST 使用真实 LLM 运行 Markdown、PDF、URL 三条路径
+- **WHEN** 用户运行 `pnpm test:smoke` 且已配置所需 provider API key
+- **THEN** smoke MUST 使用真实 LLM 运行其声明覆盖的路径
 - **AND** 输出每条路径的 source id、note id 与 answer summary 或等价调试信息
+- **AND** 输出 MUST identify each path's phase and stability label when it is not P0 Stable
 
 #### Scenario: User runs the unified smoke command without provider key
-- **WHEN** 用户运行 `pnpm test:smoke` 但未配置 `DEEPSEEK_API_KEY`
+- **WHEN** 用户运行 `pnpm test:smoke` 但未配置所需 provider API key
 - **THEN** smoke MUST 明确报告 skipped
 - **AND** 不得伪装成 passed
 
@@ -170,17 +172,17 @@ P1 PDF/URL 端到端验收 MUST 继续确认核心 workflow gates：没有 discu
 - **AND** smoke MUST 验证 frozen HTML snapshot、URL processed artifacts 与 evidence locator 存在
 
 ### Requirement: Unified smoke reports path-scoped diagnostics
-统一 smoke MUST 在成功或失败时提供足够定位信息。至少 SHOULD 包含 workdir、每条已执行 path 的 source id、note id，以及 answer conclusion 或 summary；失败时 MUST 标明失败 path。
+统一 smoke MUST 在成功或失败时提供足够定位信息。至少 SHOULD 包含 workdir、每条已执行 path 的 phase/stability label、source id、note id，以及 answer conclusion 或 summary；失败时 MUST 标明失败 path。
 
 #### Scenario: Unified smoke succeeds
-- **WHEN** Markdown、PDF、URL 三条路径均成功完成
+- **WHEN** 所有声明覆盖路径均成功完成
 - **THEN** smoke 输出 MUST 表示整体 passed
-- **AND** 输出包含每条路径的标识、source id、note id 与 answer summary
+- **AND** 输出包含每条路径的标识、phase/stability label、source id、note id 与 answer summary
 
 #### Scenario: Unified smoke fails in one path
 - **WHEN** 任一路径命令失败、schema 校验失败、QA gate 失败或 answer grounding 失败
 - **THEN** smoke MUST 以失败退出
-- **AND** 错误信息 MUST 包含失败 path label、workdir，以及已知的 source id 或 note id
+- **AND** 错误信息 MUST 包含失败 path label、phase/stability label、workdir，以及已知的 source id 或 note id
 
 #### Scenario: User keeps smoke workdir
 - **WHEN** 用户运行 smoke 时传入 `--keep-workdir`
@@ -225,4 +227,17 @@ P1 PDF/URL 端到端验收 MUST 继续确认核心 workflow gates：没有 discu
 #### Scenario: Reviewer checks Candidate boundary rules
 - **WHEN** 评审者检查 duplicate、dismissed、unselected Candidate
 - **THEN** 说明文档 MUST 明确这些 Candidate 不应直接创建 Source、Index 或 answer evidence
+
+### Requirement: P0 and extended acceptance documents are separated
+系统 SHALL 将 P0 Stable 验收说明与 extended capability smoke/acceptance 说明拆分为不同文档，或在同一文档中使用明确章节和标签分区。文件名或标题 MUST NOT 让 PDF、URL、Feishu、Candidate、vector、hybrid 或 fallback coverage 被误解为 P0 Stable 必需范围。
+
+#### Scenario: P0 smoke document is read
+- **WHEN** 用户打开 P0 smoke 或 P0 acceptance 文档
+- **THEN** 文档 MUST state that P0 Stable covers Markdown-only learning loop and default approved-Note answer
+- **AND** 文档 MUST NOT list PDF、URL、Feishu、Candidate、vector、hybrid or fallback-unconfirmed as P0 Stable requirements
+
+#### Scenario: Extended smoke document is read
+- **WHEN** 用户打开 extended capability smoke 或 acceptance 文档
+- **THEN** 文档 MUST identify each covered path by phase and stability label
+- **AND** 文档 MUST state that extended coverage does not relax Source -> Discussion -> Note -> QA -> Index gates
 

@@ -50,6 +50,65 @@ const assistant_reply = 'Approved notes keep raw discussion separate.';
 const user_message = 'We should only answer from approved notes.';
 
 describe('P0 end-to-end acceptance CLI', () => {
+  it('labels CLI capabilities by phase in help metadata', () => {
+    const program = create_program();
+    const candidate = program.commands.find(
+      (command) => command.name() === 'candidate',
+    );
+    const schedule = program.commands.find(
+      (command) => command.name() === 'schedule',
+    );
+    const task = program.commands.find((command) => command.name() === 'task');
+    const source = program.commands.find(
+      (command) => command.name() === 'source',
+    );
+    const note = program.commands.find((command) => command.name() === 'note');
+    const answer = program.commands.find(
+      (command) => command.name() === 'answer',
+    );
+
+    expect(candidate?.description()).toContain('[P2 Experimental]');
+    expect(schedule?.description()).toContain('[P2 Experimental]');
+    expect(task?.description()).toContain('[P2 Experimental]');
+    expect(answer?.description()).toContain('[P0 Stable default]');
+    expect(
+      answer?.options.find((option) => option.long === '--hybrid')?.description,
+    ).toContain('[P3 Experimental]');
+
+    const source_ingest = source?.commands.find(
+      (command) => command.name() === 'ingest',
+    );
+    expect(
+      source_ingest?.commands
+        .find((command) => command.name() === 'markdown')
+        ?.description(),
+    ).toContain('[P0 Stable]');
+    expect(
+      source_ingest?.commands
+        .find((command) => command.name() === 'pdf')
+        ?.description(),
+    ).toContain('[P1 Beta]');
+    expect(
+      source_ingest?.commands
+        .find((command) => command.name() === 'url')
+        ?.description(),
+    ).toContain('[P1 Beta]');
+    expect(
+      source_ingest?.commands
+        .find((command) => command.name() === 'feishu-doc')
+        ?.description(),
+    ).toContain('[P1 Beta]');
+
+    const note_index = note?.commands.find(
+      (command) => command.name() === 'index',
+    );
+    expect(note_index?.description()).toContain('[P0 Stable');
+    expect(
+      note_index?.options.find((option) => option.long === '--vector')
+        ?.description,
+    ).toContain('[P3 Experimental]');
+  });
+
   it('runs the full P0 flow from an empty knowledge directory and enforces key gates', async () => {
     const cwd = await create_temp_dir();
     const fixture_content = await readFile(acceptance_fixture_file, 'utf8');
@@ -437,6 +496,33 @@ describe('P0 end-to-end acceptance CLI', () => {
         limitations: ['Uses unconfirmed material.'],
       }),
     });
+    const default_no_fallback_harness = create_cli_harness(cwd, {
+      answer: async () => {
+        throw new Error('default answer must not read unconfirmed materials');
+      },
+    });
+    await default_no_fallback_harness.run([
+      'answer',
+      'fallback cli evidence',
+      '--json',
+    ]);
+    const default_no_fallback_json = JSON.parse(
+      default_no_fallback_harness.stdout[0],
+    ) as {
+      ok: true;
+      data: {
+        matched_note_ids: string[];
+        unconfirmed_materials: unknown[];
+        answer: { conclusion: string; cited_notes: unknown[] };
+      };
+    };
+    expect(default_no_fallback_json.data.matched_note_ids).toEqual([]);
+    expect(default_no_fallback_json.data.unconfirmed_materials).toEqual([]);
+    expect(default_no_fallback_json.data.answer.conclusion).toBe(
+      '没有相关已确认知识。',
+    );
+    expect(default_no_fallback_json.data.answer.cited_notes).toEqual([]);
+
     await fallback_json_harness.run([
       'answer',
       'fallback cli evidence',
@@ -449,6 +535,7 @@ describe('P0 end-to-end acceptance CLI', () => {
       ok: true;
       data: {
         unconfirmed_materials: Array<{
+          confirmation_status: 'unconfirmed';
           material_type: string;
           source_id: string;
           evidence_ref: string;
@@ -457,10 +544,14 @@ describe('P0 end-to-end acceptance CLI', () => {
       };
     };
     expect(fallback_answer_json.data.unconfirmed_materials[0]).toMatchObject({
+      confirmation_status: 'unconfirmed',
       material_type: 'processed_segment',
       source_id: fallback_source_id,
       evidence_ref: 'processed/segments.json#seg_0001',
     });
+    expect(
+      fallback_answer_json.data.unconfirmed_materials[0].limitations[0],
+    ).toContain('approved knowledge');
 
     const fallback_text_harness = create_cli_harness(cwd, {
       answer: async ({ agent_input }) => ({
@@ -476,10 +567,13 @@ describe('P0 end-to-end acceptance CLI', () => {
       '--fallback-unconfirmed',
     ]);
     expect(fallback_text_harness.stdout.join('\n')).toContain(
-      'Unconfirmed materials:',
+      '补充但未确认的材料 (unconfirmed secondary evidence):',
     );
     expect(fallback_text_harness.stdout.join('\n')).toContain(
       '[unconfirmed:processed_segment]',
+    );
+    expect(fallback_text_harness.stdout.join('\n')).toContain(
+      'confirmation_status: unconfirmed',
     );
 
     await expect(access(knowledge_dir({ cwd }))).resolves.toBeUndefined();

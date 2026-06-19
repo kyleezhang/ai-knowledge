@@ -13,9 +13,9 @@
 1. 主语言使用 **TypeScript + Node.js LTS**。
 2. MVP 采用 **CLI first**，暂不建设 Web UI。
 3. TypeScript 对象字段与 JSON schema 保持一致，统一使用 `snake_case`。
-4. P0 只支持 **Markdown 主动导入**，PDF 放到 P1。
+4. P0 Stable 只要求 **Markdown 主动导入**；PDF、显式公开 URL 与飞书单文档导入属于 P1 Beta。
 5. `Source` 允许扩展 `last_error` 字段，用于记录最近一次流程失败。
-6. P0 检索先使用 **关键词 / metadata 检索**，暂不引入向量检索。
+6. P0 Stable 默认检索使用 **关键词 / metadata 检索**；向量索引与 hybrid retrieval 属于 P3 Experimental，必须显式启用。
 
 ## 3. 总体实现原则
 
@@ -121,9 +121,9 @@ eslint：Lint
 prettier：格式化
 ```
 
-P1 再引入 PDF 相关依赖，例如 `pdf-parse`。
+P1 Beta 已引入 PDF 相关依赖，例如 `pdf-parse`，用于显式 PDF 导入与处理。
 
-P3 再讨论向量存储或 embedding 方案。
+P3 Experimental 已接入可显式启用的向量索引 / embedding 方案；默认 P0 Stable 路径不依赖 embedding provider。
 
 ### 4.3 配置规范
 
@@ -2050,9 +2050,18 @@ Workflow 捕获 AgentError 后统一转为 `WorkflowError.code = AGENT_FAILED`�
 
 该字段需要同步补充到 `specs/schema.md` 的 Source schema 中。
 
-## 8. P0 主动学习闭环
+## 8. 能力阶段与 P0 主动学习闭环
 
-P0 只实现 Markdown 主动导入，不支持 PDF、自动采集和向量检索。
+当前实现按“阶段 + 稳定性”标记用户可见能力：
+
+| Phase | Stability | Capabilities |
+| --- | --- | --- |
+| P0 | Stable | Markdown 主动导入、Source processing、draft understanding、discussion approval、Note compose/render/lint/approve/index、默认 approved Note keyword / metadata answer |
+| P1 | Beta | PDF 导入与处理、显式公开 URL 导入与处理、飞书单文档导入与处理 |
+| P2 | Experimental | Candidate 自动采集、去重、评分、推荐、选择转 Source、本地 schedule / task automation |
+| P3 | Experimental | `note index --vector`、vector index metadata、`answer --hybrid` |
+
+P0 Stable 只要求 Markdown 主动导入和 approved Note keyword / metadata answer。P1/P2/P3 能力可以在 CLI 中暴露，但不得成为 P0 成功的必要条件，也不得放宽 `Source -> Discussion -> Note -> QA -> Index` gates。
 
 P0 目标链路：
 
@@ -2062,9 +2071,9 @@ Markdown -> Source -> Processed Artifacts -> Draft Understanding
 -> QA -> Approved Note -> Index Entry -> Answer
 ```
 
-### 8.1 P0 命令集
+### 8.1 P0 Stable 命令集
 
-P0 采用以下资源化 CLI 命令：
+P0 Stable 采用以下资源化 CLI 命令：
 
 ```bash
 ai-knowledge source ingest markdown <file>
@@ -2091,7 +2100,7 @@ ai-knowledge answer "<question>"
 - `source list/show` 与 `note list/show` 是 P0 只读辅助命令，用于查看工作流状态。
 - `note render` 用于从 `note.json` 重新渲染 `note.md`，方便 QA 修复后重新成稿。
 - 所有非交互命令应支持 `--json`。
-- P0 不提供 `collect` 或 `candidate` 命令；自动采集留到 P2 再讨论。
+- `collect`、`candidate`、`schedule`、`task`、`note index --vector`、`answer --hybrid` 等扩展命令不属于 P0 Stable gates；如果在 CLI 中暴露，必须按 P2/P3 Experimental 或对应阶段标记。
 
 ### 8.2 Markdown Ingest
 
@@ -2417,16 +2426,25 @@ ai-knowledge answer "<question>" --json
 ai-knowledge answer "<question>" --top-k 5
 ```
 
-P0 检索顺序：
+P0 Stable 默认检索顺序：
 
 1. `knowledge/index/` 中的 approved Index Entry。
 2. 对应的 approved `note.json`。
-3. 必要时补充对应 Source 的 `discussion_summary`，并标注未确认属性。
+
+默认 `answer` 不 fallback 到 `Source`、`draft_understanding`、`discussion_summary`、Candidate 或 vector chunk text。如果没有命中 approved Note，应明确说明没有相关已确认知识。
+
+显式 fallback 参数：
+
+```bash
+ai-knowledge answer "<question>" --fallback-unconfirmed
+```
+
+只有显式开启 fallback 时，workflow 才可以把结构化未确认材料作为 secondary evidence 传给 Answer Agent。Fallback evidence 必须包含 `confirmation_status = unconfirmed`、`material_type`、`source_id`、`source_title`、`source_status`、`evidence_ref`、`excerpt` 与 `limitations`，并且不得创建 Note、Index Entry、vector index 或修改任何对象状态。
 
 回答必须区分：
 
 - 已确认知识。
-- 未确认讨论材料。
+- 显式 fallback 使用的未确认结构化材料。
 - 当前知识库无法回答的部分。
 
 默认回答结构：
@@ -2436,16 +2454,22 @@ P0 检索顺序：
 
 ## 依据的已确认笔记
 
-## 补充但未确认的材料
-
 ## 不足与边界
 ```
 
-## 9. P1-P4 阶段规划
+显式 fallback 输出可额外包含：
 
-### 9.1 P1：PDF 支持
+```md
+## 补充但未确认的材料
+```
 
-增加 PDF 导入与处理：
+## 9. 扩展能力阶段
+
+### 9.1 P1 Beta：输入扩展
+
+P1 Beta 已覆盖 PDF、显式公开 URL 与飞书单文档导入 / 处理。它们是 P0 Stable Markdown 主链路的输入扩展，不改变下游 `process -> understand -> discuss -> approve -> note -> index -> answer` gates。
+
+PDF 支持：
 
 - 原始 PDF 保存到 `raw/`。
 - 文本提取。
@@ -2453,9 +2477,21 @@ P0 检索顺序：
 - 页码或章节级 segment。
 - `processing_artifacts` 登记。
 
-### 9.2 P2：自动采集候选池
+显式 URL 支持：
 
-增加：
+- 只处理用户显式提供的公开 URL。
+- 保存 frozen HTML snapshot。
+- 处理阶段抽取正文与 locator metadata。
+- 不做 crawling、站内链接发现或批量同步。
+
+飞书单文档支持：
+
+- 只处理用户显式提供的单个飞书文档 URL 或 token。
+- 不做知识库、空间或文件夹批量同步。
+
+### 9.2 P2 Experimental：自动采集候选池与本地自动化
+
+P2 Experimental 已覆盖：
 
 - GitHub Trending collector。
 - Hacker News collector。
@@ -2463,18 +2499,20 @@ P0 检索顺序：
 - Candidate 规则评分。
 - Candidate 推荐列表。
 - Candidate 转 Source。
+- 本地 schedule / task automation。
 
-自动采集内容必须先进入候选池，由用户选择后才进入正式学习流程。
+自动采集内容必须先进入候选池，由用户选择后才进入正式学习流程。Candidate 不得直接进入主 Index 或 answer evidence。
 
-### 9.3 P3：向量检索
+### 9.3 P3 Experimental：向量检索与 hybrid retrieval
 
-在关键词 / metadata 检索基础上增加向量检索。
+P3 Experimental 在关键词 / metadata 检索基础上增加显式向量索引和 hybrid retrieval。
 
 实现时应保持：
 
 - `Index Entry` 只是检索入口。
 - `note.json` 仍是知识主真相。
 - `vector_ref` 只引用向量索引位置。
+- vector / hybrid 只用于定位 approved Notes，不把 vector chunk text 当作 answer evidence。
 
 ### 9.4 P4：相关笔记关系增强
 
@@ -2487,7 +2525,9 @@ P0 检索顺序：
 
 ## 10. CLI 命令规范
 
-P0 CLI 采用资源化命令结构：
+CLI 采用资源化命令结构，并按 phase/stability 标记用户可见能力。P0 Stable 是必需 baseline；P1 Beta、P2 Experimental、P3 Experimental 是当前已暴露的扩展能力。
+
+### 10.1 P0 Stable CLI
 
 ```bash
 ai-knowledge source ingest markdown <file>
@@ -2509,6 +2549,32 @@ ai-knowledge note show <note_id>
 ai-knowledge answer "<question>"
 ```
 
+### 10.2 Extended CLI
+
+```bash
+# P1 Beta
+ai-knowledge source ingest pdf <file>
+ai-knowledge source ingest url <public_url>
+ai-knowledge source ingest feishu-doc <doc_url_or_token>
+
+# P2 Experimental
+ai-knowledge candidate collect github-trending
+ai-knowledge candidate collect hacker-news
+ai-knowledge candidate score <candidate_id>
+ai-knowledge candidate select <candidate_id>
+ai-knowledge candidate list
+ai-knowledge candidate show <candidate_id>
+ai-knowledge schedule ...
+ai-knowledge task ...
+
+# P3 Experimental
+ai-knowledge note index <note_id> --vector
+ai-knowledge answer "<question>" --hybrid
+
+# Explicit non-default fallback
+ai-knowledge answer "<question>" --fallback-unconfirmed
+```
+
 CLI 命令应保持对象边界清晰、状态显式，不隐藏关键门槛。
 
 已确认的 CLI 决策：
@@ -2521,7 +2587,7 @@ CLI 命令应保持对象边界清晰、状态显式，不隐藏关键门槛。
 6. 所有非交互命令统一支持 `--json`。
 7. CLI 展示 workflow 返回的 `next_actions`，不自行推导下一步业务动作。
 
-自动采集相关 CLI 不纳入 P0；GitHub Trending / Hacker News 的 `collect` 与 `candidate` 命令留到 P2 再单独讨论。
+自动采集相关 CLI 不纳入 P0 Stable；GitHub Trending / Hacker News 的 `collect` 与 `candidate` 命令属于 P2 Experimental，必须继续经过 Candidate -> Source 人工选择边界。
 
 ## 11. LLM 调用规范
 
@@ -2627,7 +2693,7 @@ Test: Vitest
 6. `note.md` 不得反向成为正式知识主编辑面。
 7. 问答默认优先使用 approved Note，而不是原始 Source。
 8. LLM 输出未通过结构化校验时，不得进入下一状态。
-9. P0 不引入 PDF、自动采集或向量检索。
+9. P0 Stable 不依赖 PDF、自动采集或向量检索；这些能力分别属于 P1 Beta、P2 Experimental 与 P3 Experimental，且不得放宽核心 workflow gates。
 
 ## 15. 后续需要继续讨论的问题
 

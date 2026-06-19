@@ -1,4 +1,11 @@
-# 自动采集候选池端到端人工验收步骤
+# P2 Experimental 自动采集候选池端到端人工验收步骤
+
+## 阶段标签
+
+- Phase: P2
+- Stability: Experimental
+- Scope: Candidate collect / score / select 与 Candidate -> Source 转换。
+- Boundary: Candidate 不得直接进入主 Index 或 answer evidence，必须先经用户选择转换为 Source，并继续走 Source -> Discussion -> Note -> QA -> Index gates。
 
 ## 目的
 
